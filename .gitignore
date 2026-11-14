@@ -1,7 +1,5 @@
 .env
 data/
-*.pbix
 *.csv
 .venv/
 __pycache__/
-.pbi/

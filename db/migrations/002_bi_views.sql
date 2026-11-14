@@ -1,6 +1,6 @@
 -- 002_bi_views.sql
--- Star-schema views. Power BI reads ONLY these, so table changes
--- don't break the report.
+-- Vistas de consulta que pueden servir para el futuro dashboard web.
+-- Se conserva el nombre de la migración para las bases ya preparadas.
 
 SET search_path = finance;
 
