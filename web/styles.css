@@ -34,7 +34,14 @@ button:disabled { opacity: .6; cursor: not-allowed; }
 .panel { margin-top: 16px; }
 h2 { font-size: 20px; margin: 8px 0 22px; }
 ul { padding: 0; margin: 0; list-style: none; }
-li { border-top: 1px solid #edf1ed; padding: 15px 0; display: flex; justify-content: space-between; gap: 20px; }
+.chart-description { color: #64766a; font-size: 13px; margin: -10px 0 20px; }
+li { border-top: 1px solid #edf1ed; padding: 15px 0; }
+.category-detail { display: flex; justify-content: space-between; gap: 20px; align-items: baseline; }
+.category-detail > span { overflow-wrap: anywhere; }
+.category-detail strong { white-space: nowrap; }
+.category-percent { color: #64766a; font-size: 12px; font-weight: 400; }
+.chart-track { height: 9px; margin-top: 10px; background: #e8f0e9; border-radius: 6px; overflow: hidden; }
+.chart-bar { height: 100%; min-width: 2px; background: #368b5f; border-radius: inherit; }
 #empty { color: #6d8072; }
 @media (max-width: 600px) {
   .intro { flex-direction: column; align-items: stretch; }

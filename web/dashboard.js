@@ -1,3 +1,5 @@
+import { expenseShare } from "./chart.js";
+
 const form = document.querySelector("#month-form");
 const monthInput = document.querySelector("#month");
 const viewInput = document.querySelector("#view");
@@ -47,12 +49,27 @@ async function loadExpenses() {
     let count = 0;
     for (const category of data.categories) {
       count += category.count;
+      const share = expenseShare(category.total, data.total);
       const item = document.createElement("li");
+      const detail = document.createElement("div");
       const name = document.createElement("span");
       const value = document.createElement("strong");
+      const percent = document.createElement("span");
+      const track = document.createElement("div");
+      const bar = document.createElement("div");
       name.textContent = displayName(category.category);
       value.textContent = formatMoney(category.total);
-      item.append(name, value);
+      percent.textContent = ` · ${share.label}`;
+      percent.className = "category-percent";
+      value.append(percent);
+      detail.className = "category-detail";
+      detail.append(name, value);
+      track.className = "chart-track";
+      track.setAttribute("aria-hidden", "true");
+      bar.className = "chart-bar";
+      bar.style.width = `${share.width}%`;
+      track.append(bar);
+      item.append(detail, track);
       list.append(item);
     }
     document.querySelector("#total").textContent = formatMoney(data.total);
