@@ -34,7 +34,7 @@ test("consulta solo el hogar de prueba y el mes seleccionado", async (t) => {
     expenses: [{ date: "2026-11-02", description: "Compra", category: "Hogar", amount: "123.50" }],
   });
   assert.deepEqual(queries[0].params, ["[DEMO] Hogar de prueba"]);
-  assert.deepEqual(queries[1].params, [42, "2026-11"]);
+  assert.deepEqual(queries[1].params, [42, "2026-11", null]);
 });
 
 test("rechaza meses inválidos y métodos de escritura antes de consultar la base", async (t) => {
@@ -42,7 +42,7 @@ test("rechaza meses inválidos y métodos de escritura antes de consultar la bas
   for (const month of ["2026-13", "2026-1", "1899-12", "2026-11&mes=2026-10"]) {
     assert.equal((await fetch(`${url}/api/gastos?mes=${month}`)).status, 400);
   }
-  assert.equal((await fetch(`${url}/api/gastos?mes=2026-11`, { method: "DELETE" })).status, 405);
+  assert.equal((await fetch(`${url}/api/gastos?mes=2026-11`, { method: "PATCH" })).status, 405);
 });
 
 test("registra un gasto válido solo en el hogar y miembro configurados", async (t) => {
@@ -65,6 +65,102 @@ test("registra un gasto válido solo en el hogar y miembro configurados", async 
   assert.deepEqual(queries[1].params, [7, 3, 4, 5, "2024-02-29", "1500", "Café"]);
   assert.match(queries[1].sql, /a\.household_id = h\.household_id/);
   assert.match(queries[1].sql, /c\.household_id = h\.household_id/);
+});
+
+test("actualiza solo el gasto personal solicitado y conserva su ID exacto", async (t) => {
+  const queries = [];
+  const pool = {
+    async query(sql, params) {
+      queries.push({ sql, params });
+      return queries.length === 1
+        ? { rows: [{ household_id: 7, member_id: 3 }] }
+        : { rows: [{ transaction_id: "9007199254740993" }] };
+    },
+  };
+  const url = await startServer(t, pool, { householdId: 7 });
+  const response = await fetch(`${url}/api/gastos`, {
+    method: "PUT",
+    headers: { Origin: url, "Content-Type": "application/json" },
+    body: JSON.stringify({ id: "9007199254740993", merchant: " Café ", amount: "1500", date: "2024-02-29", accountId: 4, categoryId: 5 }),
+  });
+  assert.equal(response.status, 200);
+  assert.deepEqual(queries[1].params, [7, 3, 4, 5, "2024-02-29", "1500", "Café", "9007199254740993"]);
+});
+
+test("rechaza edición con ID inválido u origen ajeno", async (t) => {
+  const url = await startServer(t, { query() { throw new Error("No debe consultar la base"); } }, { householdId: 7 });
+  const valid = { id: "1", merchant: "Compra", amount: "1500", date: "2024-02-29", accountId: 4, categoryId: 5 };
+  const put = (body, origin = url) => fetch(`${url}/api/gastos`, {
+    method: "PUT", headers: { Origin: origin, "Content-Type": "application/json" }, body: JSON.stringify(body),
+  });
+  assert.equal((await put(valid, "https://otro-sitio.example")).status, 403);
+  for (const id of ["0", "1.5", "9223372036854775808", 1, null]) {
+    assert.equal((await put({ ...valid, id })).status, 400);
+  }
+});
+
+test("informa cuando el gasto no puede editarse en el hogar personal", async (t) => {
+  let call = 0;
+  const url = await startServer(t, {
+    async query() {
+      call += 1;
+      return { rows: call === 1 ? [{ household_id: 7, member_id: 3 }] : [] };
+    },
+  }, { householdId: 7 });
+  const response = await fetch(`${url}/api/gastos`, {
+    method: "PUT",
+    headers: { Origin: url, "Content-Type": "application/json" },
+    body: JSON.stringify({ id: "20", merchant: "Compra", amount: "1500", date: "2026-01-02", accountId: 4, categoryId: 5 }),
+  });
+  assert.equal(response.status, 400);
+});
+
+test("elimina únicamente el gasto personal solicitado", async (t) => {
+  const queries = [];
+  const pool = {
+    async query(sql, params) {
+      queries.push({ sql, params });
+      return queries.length === 1
+        ? { rows: [{ household_id: 7, member_id: 3 }] }
+        : { rows: [{ transaction_id: "9007199254740993" }] };
+    },
+  };
+  const url = await startServer(t, pool, { householdId: 7 });
+  const response = await fetch(`${url}/api/gastos`, {
+    method: "DELETE",
+    headers: { Origin: url, "Content-Type": "application/json" },
+    body: JSON.stringify({ id: "9007199254740993" }),
+  });
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { message: "Gasto eliminado correctamente." });
+  assert.deepEqual(queries[1].params, [7, 3, "9007199254740993"]);
+});
+
+test("rechaza eliminación con ID inválido u origen ajeno", async (t) => {
+  const url = await startServer(t, { query() { throw new Error("No debe consultar la base"); } }, { householdId: 7 });
+  const remove = (body, origin = url) => fetch(`${url}/api/gastos`, {
+    method: "DELETE", headers: { Origin: origin, "Content-Type": "application/json" }, body: JSON.stringify(body),
+  });
+  assert.equal((await remove({ id: "1" }, "https://otro-sitio.example")).status, 403);
+  for (const body of [null, {}, { id: 1 }, { id: "0" }, { id: "9223372036854775808" }]) {
+    assert.equal((await remove(body)).status, 400);
+  }
+});
+
+test("informa si el gasto no existe o no pertenece al integrante", async (t) => {
+  let call = 0;
+  const url = await startServer(t, {
+    async query() {
+      call += 1;
+      return { rows: call === 1 ? [{ household_id: 7, member_id: 3 }] : [] };
+    },
+  }, { householdId: 7 });
+  const response = await fetch(`${url}/api/gastos`, {
+    method: "DELETE",
+    headers: { Origin: url, "Content-Type": "application/json" },
+    body: JSON.stringify({ id: "20" }),
+  });
+  assert.equal(response.status, 404);
 });
 
 test("rechaza datos inválidos y solicitudes externas sin guardar gastos", async (t) => {
