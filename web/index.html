@@ -3,27 +3,34 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Mis finanzas · Demo</title>
+  <title>Mis finanzas</title>
   <link rel="stylesheet" href="/styles.css">
   <script src="/dashboard.js" defer></script>
 </head>
 <body>
   <header>
-    <div class="topbar"><strong>◈ Mis finanzas</strong><span>DEMO · SOLO LECTURA</span></div>
+    <div class="topbar"><strong>◈ Mis finanzas</strong><span>USO LOCAL</span></div>
   </header>
   <main>
     <div class="intro">
       <div>
         <p class="eyebrow">TU RESUMEN MENSUAL</p>
         <h1>Conoce tus gastos</h1>
-        <p>Un primer vistazo a los movimientos del hogar de prueba.</p>
+        <p>Consulta tus gastos por mes y categoría.</p>
       </div>
       <form id="month-form">
-        <label for="month">Selecciona un mes</label>
-        <div><input id="month" type="month" min="1900-01" max="9999-12" required><button>Consultar</button></div>
+        <div class="filters">
+          <label for="view">Vista
+            <select id="view"><option value="personal">Hogar personal</option><option value="demo" selected>Datos de prueba</option></select>
+          </label>
+          <label for="month">Mes
+            <input id="month" type="month" min="1900-01" max="9999-12" required>
+          </label>
+          <button>Consultar</button>
+        </div>
       </form>
     </div>
-    <p class="notice">Estos datos son ficticios. Esta página aún no permite registrar ni modificar movimientos.</p>
+    <p class="notice" id="notice"></p>
     <p id="message" role="status" aria-live="polite"></p>
     <section id="results" hidden aria-label="Resumen de gastos">
       <div class="cards">
@@ -36,6 +43,32 @@
         <p id="empty" hidden>No hay gastos para este mes.</p>
         <ul id="categories"></ul>
       </section>
+    </section>
+    <section class="panel" id="registration">
+      <p class="eyebrow">HOGAR PERSONAL</p>
+      <h2>Registrar gasto</h2>
+      <p>El gasto se guardará en tu hogar personal, no en los datos de prueba.</p>
+      <form id="expense-form">
+        <div class="form-grid">
+          <label>Descripción
+            <input name="merchant" maxlength="100" required placeholder="Ej. supermercado">
+          </label>
+          <label>Monto en CLP
+            <input name="amount" type="number" min="1" max="999999999999" step="1" required placeholder="Ej. 15000">
+          </label>
+          <label>Fecha
+            <input name="date" type="date" min="1900-01-01" max="9999-12-31" required>
+          </label>
+          <label>Categoría
+            <select name="categoryId" required><option value="">Selecciona una categoría</option></select>
+          </label>
+          <label>Cuenta
+            <select name="accountId" required><option value="">Selecciona una cuenta</option></select>
+          </label>
+        </div>
+        <p id="form-message" role="status" aria-live="polite"></p>
+        <button id="save-expense" type="submit" disabled>Guardar gasto</button>
+      </form>
     </section>
   </main>
 </body>

@@ -1,12 +1,25 @@
 const form = document.querySelector("#month-form");
 const monthInput = document.querySelector("#month");
+const viewInput = document.querySelector("#view");
 const message = document.querySelector("#message");
 const results = document.querySelector("#results");
 const list = document.querySelector("#categories");
+const expenseForm = document.querySelector("#expense-form");
+const formMessage = document.querySelector("#form-message");
+const saveButton = document.querySelector("#save-expense");
 const formatter = new Intl.NumberFormat("es-CL");
+const labels = {
+  Rent: "Arriendo", Utilities: "Servicios", Groceries: "Supermercado",
+  Transport: "Transporte", "Dining out": "Comidas fuera", Subscriptions: "Suscripciones",
+  Health: "Salud", Leisure: "Ocio",
+};
+const displayName = (name) => Object.hasOwn(labels, name) ? labels[name] : name;
 const today = new Date();
-monthInput.value = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`;
+const todayText = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+monthInput.value = todayText.slice(0, 7);
+expenseForm.elements.date.value = todayText;
 let currentRequest = 0;
+let viewTouched = false;
 
 function formatMoney(value) {
   const [whole, fraction = ""] = value.split(".");
@@ -17,10 +30,15 @@ function formatMoney(value) {
 async function loadExpenses() {
   const requestId = ++currentRequest;
   const month = monthInput.value;
+  const view = viewInput.value;
+  document.querySelector("#registration").hidden = view !== "personal";
+  document.querySelector("#notice").textContent = view === "demo"
+    ? "Vista de prueba: estos datos son ficticios y están separados de tu hogar personal."
+    : "Hogar personal: los gastos que registres aquí son reales. La aplicación es local y no tiene autenticación.";
   results.hidden = true;
   message.textContent = "Cargando gastos...";
   try {
-    const response = await fetch(`/api/gastos?mes=${encodeURIComponent(month)}`);
+    const response = await fetch(`/api/gastos?mes=${encodeURIComponent(month)}&vista=${view}`);
     const data = await response.json();
     if (requestId !== currentRequest) return;
     if (!response.ok) throw new Error(data.error || "No fue posible consultar los gastos.");
@@ -32,7 +50,7 @@ async function loadExpenses() {
       const item = document.createElement("li");
       const name = document.createElement("span");
       const value = document.createElement("strong");
-      name.textContent = category.category;
+      name.textContent = displayName(category.category);
       value.textContent = formatMoney(category.total);
       item.append(name, value);
       list.append(item);
@@ -48,8 +66,79 @@ async function loadExpenses() {
   }
 }
 
+async function loadOptions() {
+  try {
+    const response = await fetch("/api/opciones");
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "No fue posible cargar el formulario.");
+    for (const [field, values] of [["accountId", data.accounts], ["categoryId", data.categories]]) {
+      const select = expenseForm.elements[field];
+      for (const value of values) {
+        const option = document.createElement("option");
+        option.value = value.id;
+        option.textContent = displayName(value.name);
+        select.append(option);
+      }
+    }
+    if (!data.accounts.length || !data.categories.length) {
+      throw new Error("El hogar necesita una cuenta activa en CLP y categorías de gastos.");
+    }
+    saveButton.disabled = false;
+    if (!viewTouched) {
+      viewInput.value = "personal";
+      loadExpenses();
+    }
+  } catch (error) {
+    formMessage.textContent = error instanceof Error ? error.message : "No fue posible cargar el formulario.";
+  }
+}
+
+expenseForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const values = new FormData(expenseForm);
+  const expense = {
+    merchant: values.get("merchant"),
+    amount: values.get("amount"),
+    date: values.get("date"),
+    categoryId: Number(values.get("categoryId")),
+    accountId: Number(values.get("accountId")),
+  };
+  saveButton.disabled = true;
+  formMessage.textContent = "Guardando gasto...";
+  try {
+    let response;
+    try {
+      response = await fetch("/api/gastos", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(expense),
+      });
+    } catch {
+      throw new Error("No se pudo confirmar el registro. Revisa tus gastos antes de intentarlo de nuevo.");
+    }
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "No fue posible guardar el gasto.");
+    expenseForm.reset();
+    expenseForm.elements.date.value = todayText;
+    formMessage.textContent = "Gasto registrado correctamente.";
+    monthInput.value = expense.date.slice(0, 7);
+    viewInput.value = "personal";
+    await loadExpenses();
+  } catch (error) {
+    formMessage.textContent = error instanceof Error ? error.message : "No fue posible guardar el gasto.";
+  } finally {
+    saveButton.disabled = false;
+  }
+});
+
 form.addEventListener("submit", (event) => {
   event.preventDefault();
+  viewTouched = true;
+  loadExpenses();
+});
+viewInput.addEventListener("change", () => {
+  viewTouched = true;
   loadExpenses();
 });
 loadExpenses();
+loadOptions();

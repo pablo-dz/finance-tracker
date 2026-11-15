@@ -1,6 +1,6 @@
 # Finance tracker
 
-Proyecto para entender ingresos, gastos y presupuestos en pesos chilenos (CLP). El objetivo es tener un dashboard en una página web propia. La primera etapa considera una persona; el esquema de PostgreSQL ya permite asociar varios integrantes a un mismo hogar. La aplicación, la autenticación y el acceso compartido todavía no están implementados.
+Proyecto para entender ingresos, gastos y presupuestos en pesos chilenos (CLP). La primera etapa permite registrar gastos de una persona y verlos en una página web local. El esquema de PostgreSQL ya permite asociar varios integrantes a un mismo hogar, pero la autenticación y el acceso compartido todavía no están implementados.
 
 ## Lo que existe
 
@@ -65,20 +65,32 @@ ORDER BY gastado DESC;
 
 Usa `\q` para salir de `psql`. La diferencia entre ingresos y gastos no equivale necesariamente al ahorro real: puede haber transferencias u otros movimientos no registrados.
 
-## Dashboard web de prueba
+## Dashboard y registro de gastos
 
 Necesitas Node.js 22 o superior y npm. Con PostgreSQL iniciado y los datos de prueba cargados, ejecuta desde la raíz del proyecto:
 
 ```bash
 npm install
-PGDATABASE=finance_tracker npm start
+PGDATABASE=finance_tracker FINANCE_HOUSEHOLD_ID=1 npm start
 ```
 
-Reemplaza `finance_tracker` por el nombre de tu base si es distinto. También puedes configurar la conexión con `DATABASE_URL`, o con las variables de PostgreSQL `PGHOST`, `PGPORT`, `PGUSER` y `PGPASSWORD`. No guardes contraseñas en archivos versionados.
+Reemplaza `finance_tracker` y `1` por el nombre de tu base y el ID de tu hogar personal. Puedes consultar los hogares con `psql -d finance_tracker -c "SELECT household_id, name FROM finance.household;"`. La aplicación requiere un hogar personal en CLP con exactamente un integrante activo, al menos una cuenta activa en CLP y categorías de gastos. No acepta el hogar de prueba como hogar personal.
 
-Abre [http://127.0.0.1:3000](http://127.0.0.1:3000). La página muestra el total y los gastos por categoría del mes seleccionado, solo para `[DEMO] Hogar de prueba`. No muestra gastos reales ni permite modificar datos. Para detenerla, presiona `Ctrl+C` en la terminal.
+Si tu hogar aún no tiene cuenta, consulta los IDs de sus integrantes y crea una cuenta para el integrante correspondiente. Por ejemplo, **sustituye ambos IDs** por los de tu base antes de ejecutar:
 
-Es una demo local sin autenticación; no la expongas a internet ni a redes compartidas. El servidor escucha únicamente en `127.0.0.1`.
+```sql
+SELECT member_id, household_id, name FROM finance.member WHERE is_active;
+INSERT INTO finance.account (household_id, member_id, name, type, currency)
+VALUES (1, 1, 'Cuenta personal', 'checking', 'CLP');
+```
+
+La creación de esta cuenta se realiza una sola vez; la aplicación no la crea automáticamente. Ejecuta las consultas desde `psql` y verifica que el integrante pertenezca al hogar seleccionado.
+
+También puedes configurar la conexión con `DATABASE_URL`, o con las variables de PostgreSQL `PGHOST`, `PGPORT`, `PGUSER` y `PGPASSWORD`. No guardes contraseñas en archivos versionados.
+
+Abre [http://127.0.0.1:3000](http://127.0.0.1:3000). Si el puerto 3000 está ocupado, puedes indicar otro, por ejemplo `PORT=3001 PGDATABASE=finance_tracker FINANCE_HOUSEHOLD_ID=1 npm start`, y abrir `http://127.0.0.1:3001`. Selecciona la vista personal para registrar gastos reales en pesos enteros y consultar su total mensual y distribución por categoría. La vista de prueba permanece separada y es de solo lectura. Sin `FINANCE_HOUSEHOLD_ID` puedes consultar la demo, pero no registrar gastos. El formulario todavía no permite editar ni eliminar movimientos. Para detener el servidor, presiona `Ctrl+C`.
+
+La aplicación es local y no tiene autenticación ni separación segura entre usuarios: cualquier persona con acceso al equipo puede usarla o acceder a la base. No la expongas a internet ni a redes compartidas. El servidor escucha únicamente en `127.0.0.1`. Respalda regularmente tu base de datos.
 
 Para ejecutar las pruebas:
 
@@ -88,6 +100,6 @@ npm test
 
 ## Próximos pasos
 
-En una siguiente etapa se puede permitir el registro de movimientos y comparar gastos con presupuestos. Más adelante, el hogar compartido requerirá cuentas de usuario, autenticación y permisos; agregar integrantes a las tablas por sí solo no proporciona acceso seguro.
+En una siguiente etapa se pueden comparar gastos con presupuestos. Más adelante, el hogar compartido requerirá cuentas de usuario, autenticación y permisos; agregar integrantes a las tablas por sí solo no proporciona acceso seguro.
 
 Trabaja en ramas de funcionalidad y abre un pull request hacia `main`.
