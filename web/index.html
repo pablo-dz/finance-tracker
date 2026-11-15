@@ -37,7 +37,28 @@
       <div class="cards">
         <article class="card total"><p>Total gastado</p><strong id="total"></strong><small>En el mes seleccionado</small></article>
         <article class="card"><p>Movimientos</p><strong id="count"></strong><small>Gastos registrados</small></article>
+        <article class="card" id="income-card" hidden><p>Ingresos</p><strong id="income-total"></strong><small>En el mes seleccionado</small></article>
       </div>
+      <section class="panel" id="accounts-panel" hidden>
+        <p class="eyebrow">SALDOS ACTUALES</p>
+        <h2>Cuentas</h2>
+        <p class="chart-description">Saldo inicial más ingresos, gastos y transferencias registrados hasta hoy.</p>
+        <p id="accounts-status" role="status" aria-live="polite"></p>
+        <ul id="accounts" aria-label="Saldos actuales por cuenta"></ul>
+        <form id="opening-balance-form">
+          <h3>Configurar saldo inicial</h3>
+          <div class="form-grid">
+            <label>Cuenta
+              <select name="accountId" required><option value="">Selecciona una cuenta</option></select>
+            </label>
+            <label>Saldo inicial en CLP
+              <input name="amount" type="number" min="-999999999999.99" max="999999999999.99" step="0.01" required>
+            </label>
+          </div>
+          <p id="opening-balance-message" role="status" aria-live="polite"></p>
+          <button id="save-opening-balance" type="submit" disabled>Guardar saldo inicial</button>
+        </form>
+      </section>
       <section class="panel">
         <p class="eyebrow">DISTRIBUCIÓN</p>
         <h2>Gastos por categoría</h2>
@@ -76,6 +97,12 @@
         <p id="movements-empty" hidden>No hay movimientos para este mes.</p>
         <ul id="movements" aria-label="Gastos del mes"></ul>
       </section>
+      <section class="panel" id="income-movements-panel" hidden>
+        <p class="eyebrow">OTROS MOVIMIENTOS DEL MES</p>
+        <h2>Ingresos y transferencias</h2>
+        <p id="income-movements-empty" hidden>No hay ingresos ni transferencias para este mes.</p>
+        <ul id="income-movements" aria-label="Ingresos y transferencias del mes"></ul>
+      </section>
     </section>
     <section class="panel" id="registration">
       <p class="eyebrow">HOGAR PERSONAL</p>
@@ -104,6 +131,56 @@
           <button id="save-expense" type="submit" disabled>Guardar gasto</button>
           <button id="cancel-edit" class="secondary-button" type="button" hidden>Cancelar edición</button>
         </div>
+      </form>
+    </section>
+    <section class="panel" id="income-registration">
+      <p class="eyebrow">HOGAR PERSONAL</p>
+      <h2>Registrar ingreso</h2>
+      <form id="income-form">
+        <div class="form-grid">
+          <label>Descripción
+            <input name="merchant" maxlength="100" required placeholder="Ej. sueldo">
+          </label>
+          <label>Monto en CLP
+            <input name="amount" type="number" min="1" max="999999999999" step="1" required placeholder="Ej. 1500000">
+          </label>
+          <label>Fecha
+            <input name="date" type="date" min="1900-01-01" max="9999-12-31" required>
+          </label>
+          <label>Categoría
+            <select name="categoryId" required><option value="">Selecciona una categoría</option></select>
+          </label>
+          <label>Cuenta
+            <select name="accountId" required><option value="">Selecciona una cuenta</option></select>
+          </label>
+        </div>
+        <p id="income-form-message" role="status" aria-live="polite"></p>
+        <button id="save-income" type="submit" disabled>Guardar ingreso</button>
+      </form>
+    </section>
+    <section class="panel" id="transfer-registration">
+      <p class="eyebrow">HOGAR PERSONAL</p>
+      <h2>Transferir entre cuentas</h2>
+      <form id="transfer-form">
+        <div class="form-grid">
+          <label>Monto en CLP
+            <input name="amount" type="number" min="0.01" max="999999999999.99" step="0.01" required placeholder="Ej. 50000">
+          </label>
+          <label>Fecha
+            <input name="date" type="date" min="1900-01-01" max="9999-12-31" required>
+          </label>
+          <label>Cuenta de origen
+            <select name="sourceAccountId" required><option value="">Selecciona una cuenta</option></select>
+          </label>
+          <label>Cuenta de destino
+            <select name="destinationAccountId" required><option value="">Selecciona una cuenta</option></select>
+          </label>
+          <label>Descripción (opcional)
+            <input name="note" maxlength="100" placeholder="Ej. ahorro mensual">
+          </label>
+        </div>
+        <p id="transfer-form-message" role="status" aria-live="polite"></p>
+        <button id="save-transfer" type="submit" disabled>Guardar transferencia</button>
       </form>
     </section>
   </main>

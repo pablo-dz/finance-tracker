@@ -51,6 +51,27 @@ function validExpense(body) {
     && Number.isSafeInteger(body.categoryId) && body.categoryId > 0 && body.categoryId <= 2147483647;
 }
 
+function validIncome(body) {
+  return validExpense(body);
+}
+
+function validTransfer(body) {
+  return body && typeof body === "object" && !Array.isArray(body)
+    && validDate(body.date)
+    && typeof body.amount === "string" && /^[1-9]\d{0,11}(?:\.\d{1,2})?$/.test(body.amount)
+    && Number.isSafeInteger(body.sourceAccountId) && body.sourceAccountId > 0 && body.sourceAccountId <= 2147483647
+    && Number.isSafeInteger(body.destinationAccountId) && body.destinationAccountId > 0
+    && body.destinationAccountId <= 2147483647 && body.sourceAccountId !== body.destinationAccountId
+    && (body.note === undefined || (typeof body.note === "string" && body.note.trim().length <= 100));
+}
+
+function validOpeningBalance(body) {
+  return body && typeof body === "object" && !Array.isArray(body)
+    && Number.isSafeInteger(body.accountId) && body.accountId > 0 && body.accountId <= 2147483647
+    && typeof body.amount === "string" && /^-?(?:0|[1-9]\d{0,11})(?:\.\d{1,2})?$/.test(body.amount)
+    && typeof body.expectedAmount === "string" && /^-?(?:0|[1-9]\d{0,11})(?:\.\d{1,2})?$/.test(body.expectedAmount);
+}
+
 function validTransactionId(value) {
   return typeof value === "string" && /^[1-9]\d{0,18}$/.test(value)
     && BigInt(value) <= 9223372036854775807n;
@@ -62,7 +83,12 @@ export function createDashboardServer(pool, { householdId = null } = {}) {
       const url = new URL(request.url, "http://localhost");
       const expenseWrite = url.pathname === "/api/gastos" && ["POST", "PUT", "DELETE"].includes(request.method);
       const budgetWrite = url.pathname === "/api/presupuestos" && ["POST", "PUT"].includes(request.method);
-      if (expenseWrite || budgetWrite) {
+      const incomeWrite = url.pathname === "/api/ingresos" && request.method === "POST";
+      const incomeDelete = url.pathname === "/api/ingresos" && request.method === "DELETE";
+      const transferWrite = url.pathname === "/api/transferencias" && request.method === "POST";
+      const transferDelete = url.pathname === "/api/transferencias" && request.method === "DELETE";
+      const openingBalanceWrite = url.pathname === "/api/cuentas/saldo-inicial" && request.method === "PUT";
+      if (expenseWrite || budgetWrite || incomeWrite || incomeDelete || transferWrite || transferDelete || openingBalanceWrite) {
         const origin = `http://127.0.0.1:${request.socket.localPort}`;
         if (request.headers.host !== `127.0.0.1:${request.socket.localPort}` || request.headers.origin !== origin
           || request.headers["content-type"] !== "application/json") {
@@ -103,13 +129,127 @@ export function createDashboardServer(pool, { householdId = null } = {}) {
           sendJson(response, 400, { error: "El identificador del gasto no es válido." });
           return;
         }
+        if ((incomeDelete || transferDelete) && (!expense || typeof expense !== "object"
+          || Array.isArray(expense) || !validTransactionId(expense.id))) {
+          sendJson(response, 400, { error: "El identificador del movimiento no es válido." });
+          return;
+        }
         if (expenseWrite && request.method !== "DELETE" && (!validExpense(expense) || (request.method === "PUT" && !validTransactionId(expense.id)))) {
           sendJson(response, 400, { error: "Revisa la descripción, el monto entero en CLP, la fecha, la categoría y la cuenta." });
+          return;
+        }
+        if (incomeWrite && !validIncome(expense)) {
+          sendJson(response, 400, { error: "Revisa la descripción, el monto, la fecha, la categoría y la cuenta del ingreso." });
+          return;
+        }
+        if (transferWrite && !validTransfer(expense)) {
+          sendJson(response, 400, { error: "Revisa el monto, la fecha y las cuentas de origen y destino de la transferencia." });
+          return;
+        }
+        if (openingBalanceWrite && !validOpeningBalance(expense)) {
+          sendJson(response, 400, { error: "Ingresa un saldo inicial válido para la cuenta." });
           return;
         }
         const member = await personalMember(pool, householdId);
         if (!member) {
           sendJson(response, 409, { error: "Configura un hogar personal en CLP con un único integrante activo." });
+          return;
+        }
+        if (incomeDelete || transferDelete) {
+          const result = incomeDelete ? await pool.query(
+            `DELETE FROM finance.transactions t
+             USING finance.household h, finance.member m
+             WHERE h.household_id = $1 AND h.base_currency = 'CLP' AND h.name <> '[DEMO] Hogar de prueba'
+               AND m.household_id = h.household_id AND m.member_id = $2 AND m.is_active
+               AND t.transaction_id = $3::bigint AND t.household_id = h.household_id
+               AND t.member_id = m.member_id AND t.type = 'income'
+               AND (SELECT count(*) FROM finance.member WHERE household_id = h.household_id AND is_active) = 1
+             RETURNING t.transaction_id::text`,
+            [member.household_id, member.member_id, expense.id],
+          ) : await pool.query(
+            `DELETE FROM finance.account_transfer tr
+             USING finance.household h, finance.member m
+             WHERE h.household_id = $1 AND h.base_currency = 'CLP' AND h.name <> '[DEMO] Hogar de prueba'
+               AND m.household_id = h.household_id AND m.member_id = $2 AND m.is_active
+               AND tr.transfer_id = $3::bigint AND tr.household_id = h.household_id
+               AND tr.member_id = m.member_id
+               AND (SELECT count(*) FROM finance.member WHERE household_id = h.household_id AND is_active) = 1
+             RETURNING tr.transfer_id::text`,
+            [member.household_id, member.member_id, expense.id],
+          );
+          if (result.rows.length !== 1) {
+            sendJson(response, 404, { error: "El ingreso o transferencia no existe o ya no está disponible." });
+            return;
+          }
+          sendJson(response, 200, { message: incomeDelete ? "Ingreso eliminado correctamente." : "Transferencia eliminada correctamente." });
+          return;
+        }
+        if (openingBalanceWrite) {
+          const result = await pool.query(
+            `UPDATE finance.account a SET opening_balance = $4::numeric
+             FROM finance.household h, finance.member m
+             WHERE h.household_id = $1 AND h.base_currency = 'CLP' AND h.name <> '[DEMO] Hogar de prueba'
+               AND m.household_id = h.household_id AND m.member_id = $2 AND m.is_active
+               AND a.household_id = h.household_id AND a.account_id = $3
+               AND a.is_active AND a.currency = 'CLP' AND (a.member_id IS NULL OR a.member_id = m.member_id)
+               AND a.opening_balance = $5::numeric
+               AND (SELECT count(*) FROM finance.member WHERE household_id = h.household_id AND is_active) = 1
+             RETURNING a.account_id`,
+            [member.household_id, member.member_id, expense.accountId, expense.amount, expense.expectedAmount],
+          );
+          if (result.rows.length !== 1) {
+            sendJson(response, 409, { error: "La cuenta o su saldo inicial cambió. Vuelve a consultar antes de editarlo." });
+            return;
+          }
+          sendJson(response, 200, { message: "Saldo inicial actualizado correctamente." });
+          return;
+        }
+        if (incomeWrite) {
+          const result = await pool.query(
+            `INSERT INTO finance.transactions
+               (household_id, member_id, account_id, category_id, tx_date, amount, type, merchant)
+             SELECT h.household_id, m.member_id, a.account_id, c.category_id, $5::date, $6::numeric, 'income', $7
+             FROM finance.household h
+             JOIN finance.member m ON m.household_id = h.household_id AND m.member_id = $2 AND m.is_active
+             JOIN finance.account a ON a.household_id = h.household_id AND a.account_id = $3
+               AND a.is_active AND a.currency = 'CLP' AND (a.member_id IS NULL OR a.member_id = m.member_id)
+             JOIN finance.category c ON c.household_id = h.household_id AND c.category_id = $4 AND c.kind = 'income'
+             WHERE h.household_id = $1 AND h.base_currency = 'CLP' AND h.name <> '[DEMO] Hogar de prueba'
+               AND (SELECT count(*) FROM finance.member WHERE household_id = h.household_id AND is_active) = 1
+             RETURNING transaction_id::text`,
+            [member.household_id, member.member_id, expense.accountId, expense.categoryId, expense.date, expense.amount, expense.merchant.trim()],
+          );
+          if (result.rows.length !== 1) {
+            sendJson(response, 400, { error: "La cuenta o categoría de ingreso no pertenece al hogar personal o no está disponible." });
+            return;
+          }
+          sendJson(response, 201, { message: "Ingreso registrado correctamente." });
+          return;
+        }
+        if (transferWrite) {
+          const result = await pool.query(
+            `INSERT INTO finance.account_transfer
+               (household_id, member_id, source_account_id, destination_account_id, tx_date, amount, note)
+             SELECT h.household_id, m.member_id, src.account_id, dst.account_id,
+                    $5::date, $6::numeric, NULLIF(BTRIM($7), '')
+             FROM finance.household h
+             JOIN finance.member m ON m.household_id = h.household_id AND m.member_id = $2 AND m.is_active
+             JOIN finance.account src ON src.household_id = h.household_id AND src.account_id = $3
+               AND src.is_active AND src.currency = 'CLP' AND (src.member_id IS NULL OR src.member_id = m.member_id)
+             JOIN finance.account dst ON dst.household_id = h.household_id AND dst.account_id = $4
+               AND dst.is_active AND dst.currency = src.currency
+               AND (dst.member_id IS NULL OR dst.member_id = m.member_id)
+             WHERE h.household_id = $1 AND h.base_currency = 'CLP' AND h.name <> '[DEMO] Hogar de prueba'
+               AND src.account_id <> dst.account_id
+               AND (SELECT count(*) FROM finance.member WHERE household_id = h.household_id AND is_active) = 1
+             RETURNING transfer_id::text`,
+            [member.household_id, member.member_id, expense.sourceAccountId, expense.destinationAccountId, expense.date, expense.amount, expense.note?.trim() ?? ""],
+          );
+          if (result.rows.length !== 1) {
+            sendJson(response, 400, { error: "Las cuentas de origen y destino deben estar activas, ser distintas y pertenecer al hogar personal." });
+            return;
+          }
+          sendJson(response, 201, { message: "Transferencia registrada correctamente." });
           return;
         }
         if (budgetWrite) {
@@ -209,7 +349,9 @@ export function createDashboardServer(pool, { householdId = null } = {}) {
 
       if (request.method !== "GET") {
         const allow = url.pathname === "/api/gastos" ? "GET, POST, PUT, DELETE"
-          : url.pathname === "/api/presupuestos" ? "GET, POST, PUT" : "GET";
+          : url.pathname === "/api/presupuestos" ? "GET, POST, PUT"
+            : url.pathname === "/api/ingresos" || url.pathname === "/api/transferencias" ? "GET, POST, DELETE"
+              : url.pathname === "/api/cuentas/saldo-inicial" ? "GET, PUT" : "GET";
         response.writeHead(405, { Allow: allow });
         response.end();
         return;
@@ -222,16 +364,87 @@ export function createDashboardServer(pool, { householdId = null } = {}) {
           return;
         }
         const accounts = await pool.query(
-          `SELECT account_id AS id, name FROM finance.account
-           WHERE household_id = $1 AND is_active AND currency = 'CLP' AND (member_id IS NULL OR member_id = $2)
-           ORDER BY name, account_id`,
+          `SELECT a.account_id AS id, a.name, a.opening_balance::text AS "openingBalance",
+             (a.opening_balance + COALESCE(SUM(CASE t.type WHEN 'income' THEN t.amount WHEN 'expense' THEN -t.amount ELSE 0 END), 0)
+               + COALESCE((
+                 SELECT SUM(CASE WHEN tr.source_account_id = a.account_id THEN -tr.amount ELSE tr.amount END)
+                 FROM finance.account_transfer tr
+                 WHERE tr.household_id = a.household_id AND tr.member_id = $2
+                   AND tr.tx_date <= CURRENT_DATE
+                   AND (tr.source_account_id = a.account_id OR tr.destination_account_id = a.account_id)
+               ), 0))::text AS balance
+           FROM finance.account a
+           LEFT JOIN finance.transactions t ON t.household_id = a.household_id AND t.account_id = a.account_id
+             AND t.member_id = $2 AND t.type IN ('income', 'expense') AND t.tx_date <= CURRENT_DATE
+           WHERE a.household_id = $1 AND a.is_active AND a.currency = 'CLP'
+             AND (a.member_id IS NULL OR a.member_id = $2)
+           GROUP BY a.account_id, a.household_id, a.name, a.opening_balance
+           ORDER BY a.name, a.account_id`,
           [member.household_id, member.member_id],
         );
         const categories = await pool.query(
           "SELECT category_id AS id, name FROM finance.category WHERE household_id = $1 AND kind = 'expense' ORDER BY name, category_id",
           [member.household_id],
         );
-        sendJson(response, 200, { household: member.name, accounts: accounts.rows, categories: categories.rows });
+        const incomeCategories = await pool.query(
+          "SELECT category_id AS id, name FROM finance.category WHERE household_id = $1 AND kind = 'income' ORDER BY name, category_id",
+          [member.household_id],
+        );
+        sendJson(response, 200, {
+          household: member.name, accounts: accounts.rows, categories: categories.rows, incomeCategories: incomeCategories.rows,
+        });
+        return;
+      }
+
+      if (url.pathname === "/api/movimientos") {
+        const month = url.searchParams.get("mes");
+        if (!validMonth(month) || url.searchParams.getAll("mes").length !== 1) {
+          sendJson(response, 400, { error: "Selecciona un mes válido." });
+          return;
+        }
+        const member = await personalMember(pool, householdId);
+        if (!member) {
+          sendJson(response, 409, { error: "Configura un hogar personal en CLP con un único integrante activo." });
+          return;
+        }
+        const result = await pool.query(
+          `SELECT COALESCE(json_agg(movement ORDER BY sort_date DESC, sort_id DESC), '[]'::json) AS movements,
+                  COALESCE(SUM(amount) FILTER (WHERE type = 'income'), 0)::text AS "incomeTotal"
+           FROM (
+             SELECT json_build_object(
+               'id', 'transaction-' || t.transaction_id::text,
+               'date', to_char(t.tx_date, 'YYYY-MM-DD'),
+               'type', t.type,
+               'description', COALESCE(NULLIF(BTRIM(t.merchant), ''), NULLIF(BTRIM(t.note), ''), 'Sin descripción'),
+               'amount', t.amount::text,
+               'category', c.name,
+               'account', a.name
+             ) AS movement, t.tx_date AS sort_date, t.transaction_id AS sort_id, t.type, t.amount
+             FROM finance.transactions t
+             JOIN finance.account a ON a.account_id = t.account_id AND a.household_id = t.household_id
+             LEFT JOIN finance.category c ON c.category_id = t.category_id AND c.household_id = t.household_id
+             WHERE t.household_id = $1 AND t.member_id = $2 AND t.type IN ('income', 'expense')
+               AND t.tx_date >= ($3 || '-01')::date AND t.tx_date < (($3 || '-01')::date + interval '1 month')
+             UNION ALL
+             SELECT json_build_object(
+               'id', 'transfer-' || tr.transfer_id::text,
+               'date', to_char(tr.tx_date, 'YYYY-MM-DD'),
+               'type', 'transfer',
+               'description', COALESCE(NULLIF(BTRIM(tr.note), ''), 'Transferencia'),
+               'amount', tr.amount::text,
+               'category', NULL,
+               'account', source.name,
+               'destinationAccount', destination.name
+             ) AS movement, tr.tx_date AS sort_date, tr.transfer_id AS sort_id, 'transfer'::text AS type, tr.amount
+             FROM finance.account_transfer tr
+             JOIN finance.account source ON source.account_id = tr.source_account_id AND source.household_id = tr.household_id
+             JOIN finance.account destination ON destination.account_id = tr.destination_account_id AND destination.household_id = tr.household_id
+             WHERE tr.household_id = $1 AND tr.member_id = $2
+               AND tr.tx_date >= ($3 || '-01')::date AND tr.tx_date < (($3 || '-01')::date + interval '1 month')
+           ) entries`,
+          [member.household_id, member.member_id, month],
+        );
+        sendJson(response, 200, { month, ...result.rows[0] });
         return;
       }
 

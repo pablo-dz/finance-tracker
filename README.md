@@ -1,12 +1,13 @@
 # Finance tracker
 
-Proyecto para entender ingresos, gastos y presupuestos en pesos chilenos (CLP). La primera etapa permite registrar gastos de una persona y verlos en una página web local. El esquema de PostgreSQL ya permite asociar varios integrantes a un mismo hogar, pero la autenticación y el acceso compartido todavía no están implementados.
+Proyecto para entender ingresos, gastos, transferencias y presupuestos en pesos chilenos (CLP). Permite registrar movimientos personales y consultar saldos por cuenta en una página web local. El esquema de PostgreSQL ya permite asociar varios integrantes a un mismo hogar, pero la autenticación y el acceso compartido todavía no están implementados.
 
 ## Lo que existe
 
 - `db/migrations/001_schema.sql`: tablas de hogares, integrantes, cuentas, categorías, movimientos, presupuestos y metas.
 - `db/migrations/002_bi_views.sql`: vistas de consulta que podrán servir como base para el dashboard web. Se conserva el nombre original de la migración.
 - `db/migrations/003_reference_data.sql`: hogar, integrante y categorías iniciales.
+- `db/migrations/004_account_balances_and_transfers.sql`: saldo inicial por cuenta y registro de transferencias.
 - `db/seeds/001_demo.sql`: datos **ficticios**, separados de los datos reales.
 
 ## Preparar una base nueva
@@ -19,9 +20,10 @@ En una base **nueva y vacía**, ejecuta las migraciones en orden desde la raíz 
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/001_schema.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/002_bi_views.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/003_reference_data.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/004_account_balances_and_transfers.sql
 ```
 
-Las migraciones existentes no son repetibles: **no las vuelvas a ejecutar sobre una base ya preparada**. Si ya las ejecutaste, continúa con el siguiente paso. No hay un mecanismo automático que registre qué migraciones se aplicaron.
+Las migraciones existentes no son repetibles: **no las vuelvas a ejecutar sobre una base ya preparada**. Si ya aplicaste las tres primeras, ejecuta solo la migración `004_account_balances_and_transfers.sql`. Si ya aplicaste también la cuarta, continúa con el siguiente paso. No hay un mecanismo automático que registre qué migraciones se aplicaron.
 
 ## Cargar datos de prueba
 
@@ -74,7 +76,7 @@ npm install
 PGDATABASE=finance_tracker FINANCE_HOUSEHOLD_ID=1 npm start
 ```
 
-Reemplaza `finance_tracker` y `1` por el nombre de tu base y el ID de tu hogar personal. Puedes consultar los hogares con `psql -d finance_tracker -c "SELECT household_id, name FROM finance.household;"`. La vista personal requiere un hogar en CLP con exactamente un integrante activo y categorías de gastos. Para registrar gastos también necesitas al menos una cuenta activa en CLP. No acepta el hogar de prueba como hogar personal.
+Reemplaza `finance_tracker` y `1` por el nombre de tu base y el ID de tu hogar personal. Puedes consultar los hogares con `psql -d finance_tracker -c "SELECT household_id, name FROM finance.household;"`. La vista personal requiere un hogar en CLP con exactamente un integrante activo y categorías de gastos e ingresos. Para registrar movimientos también necesitas una cuenta activa en CLP; para transferir entre cuentas necesitas dos. No acepta el hogar de prueba como hogar personal.
 
 Si tu hogar aún no tiene cuenta, consulta los IDs de sus integrantes y crea una cuenta para el integrante correspondiente. Por ejemplo, **sustituye ambos IDs** por los de tu base antes de ejecutar:
 
@@ -88,7 +90,7 @@ La creación de esta cuenta se realiza una sola vez; la aplicación no la crea a
 
 También puedes configurar la conexión con `DATABASE_URL`, o con las variables de PostgreSQL `PGHOST`, `PGPORT`, `PGUSER` y `PGPASSWORD`. No guardes contraseñas en archivos versionados.
 
-Abre [http://127.0.0.1:3000](http://127.0.0.1:3000). Si el puerto 3000 está ocupado, puedes indicar otro, por ejemplo `PORT=3001 PGDATABASE=finance_tracker FINANCE_HOUSEHOLD_ID=1 npm start`, y abrir `http://127.0.0.1:3001`. Selecciona la vista personal para registrar, editar y eliminar tus gastos, y consultar el total mensual, el gráfico y la lista de movimientos. Para editar, usa el botón junto al movimiento y guarda los cambios o cancela; la edición solo admite pesos enteros. Para eliminar, usa el botón junto al gasto y confirma: la eliminación es permanente. La vista de prueba permanece separada y es de solo lectura. Sin `FINANCE_HOUSEHOLD_ID` puedes consultar la demo, pero no modificar gastos. Para detener el servidor, presiona `Ctrl+C`.
+Abre [http://127.0.0.1:3000](http://127.0.0.1:3000). Si el puerto 3000 está ocupado, puedes indicar otro, por ejemplo `PORT=3001 PGDATABASE=finance_tracker FINANCE_HOUSEHOLD_ID=1 npm start`, y abrir `http://127.0.0.1:3001`. Selecciona la vista personal para registrar, editar y eliminar gastos; registrar y eliminar ingresos y transferencias; y consultar el total mensual, el gráfico y los movimientos. Las transferencias mueven saldo entre cuentas y no cuentan como ingreso ni gasto. En «Cuentas» puedes configurar el saldo inicial de cada cuenta; el saldo actual suma ese punto de partida, los ingresos, resta los gastos y aplica las transferencias registradas hasta hoy. El saldo inicial se entiende como anterior a todos los movimientos guardados. La edición de gastos solo admite pesos enteros; para corregir un ingreso o transferencia, elimínalo y vuelve a registrarlo. Las eliminaciones son permanentes. La vista de prueba permanece separada y es de solo lectura. Sin `FINANCE_HOUSEHOLD_ID` puedes consultar la demo, pero no modificar movimientos. Para detener el servidor, presiona `Ctrl+C`.
 
 En la vista personal, consulta un mes y crea un presupuesto para cada categoría que quieras controlar. El límite se configura por separado para cada mes, en pesos enteros; también puede ser cero. Las categorías sin límite aparecen como «Sin presupuesto». La comparación muestra el gasto personal de ese mes en CLP, el límite y lo disponible o excedido, conservando los centavos de gastos existentes. No incluye ingresos, transferencias, gastos sin categoría ni gastos en otras monedas; el resumen general agrupa gastos del hogar y puede diferir. Para cambiar un límite usa «Cambiar límite»; si otra operación lo cambió desde que se consultó, vuelve a consultar antes de editarlo. Los presupuestos compartidos del hogar no se muestran ni modifican.
 

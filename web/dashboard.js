@@ -19,6 +19,20 @@ const budgetForm = document.querySelector("#budget-form");
 const budgetFormMessage = document.querySelector("#budget-form-message");
 const saveBudgetButton = document.querySelector("#save-budget");
 const cancelBudgetButton = document.querySelector("#cancel-budget-edit");
+const incomeForm = document.querySelector("#income-form");
+const incomeFormMessage = document.querySelector("#income-form-message");
+const saveIncomeButton = document.querySelector("#save-income");
+const transferForm = document.querySelector("#transfer-form");
+const transferFormMessage = document.querySelector("#transfer-form-message");
+const saveTransferButton = document.querySelector("#save-transfer");
+const openingBalanceForm = document.querySelector("#opening-balance-form");
+const openingBalanceMessage = document.querySelector("#opening-balance-message");
+const saveOpeningBalanceButton = document.querySelector("#save-opening-balance");
+const accountList = document.querySelector("#accounts");
+const accountStatus = document.querySelector("#accounts-status");
+const incomeMovements = document.querySelector("#income-movements");
+const incomeMovementsPanel = document.querySelector("#income-movements-panel");
+const incomeMovementsEmpty = document.querySelector("#income-movements-empty");
 const formatter = new Intl.NumberFormat("es-CL");
 const labels = {
   Rent: "Arriendo", Utilities: "Servicios", Groceries: "Supermercado",
@@ -41,11 +55,18 @@ let displayedBudgetMonth = null;
 let editingBudget = null;
 let savingBudget = false;
 let budgetOptionsAvailable = false;
+let accounts = [];
+let openingBalanceExpected = null;
+let savingIncome = false;
+let savingTransfer = false;
+let savingOpeningBalance = false;
+let incomeOptionsAvailable = false;
 
 function formatMoney(value) {
   const [whole, fraction = ""] = value.split(".");
   const decimals = fraction.replace(/0+$/, "");
-  return `$${formatter.format(BigInt(whole))}${decimals ? `,${decimals}` : ""}`;
+  const formattedWhole = formatter.format(BigInt(whole));
+  return `${whole.startsWith("-") ? "-" : ""}$${formattedWhole.replace("-", "")}${decimals ? `,${decimals}` : ""}`;
 }
 
 function updateBudgetForm() {
@@ -131,6 +152,117 @@ function resetExpenseForm() {
   cancelEditButton.hidden = true;
 }
 
+function renderAccounts(values) {
+  accounts = values;
+  accountList.replaceChildren();
+  for (const account of accounts) {
+    const item = document.createElement("li");
+    const name = document.createElement("span");
+    const balance = document.createElement("strong");
+    item.className = "account-item";
+    name.textContent = account.name;
+    balance.textContent = formatMoney(account.balance);
+    item.append(name, balance);
+    accountList.append(item);
+  }
+
+  const selected = openingBalanceForm.elements.accountId.value;
+  const accountSelect = openingBalanceForm.elements.accountId;
+  accountSelect.replaceChildren(new Option("Selecciona una cuenta", ""));
+  for (const account of accounts) {
+    accountSelect.append(new Option(account.name, String(account.id)));
+  }
+  const selectedAccount = accounts.find((account) => String(account.id) === selected) ?? accounts[0];
+  if (selectedAccount) {
+    accountSelect.value = String(selectedAccount.id);
+    openingBalanceExpected = selectedAccount.openingBalance;
+    openingBalanceForm.elements.amount.value = selectedAccount.openingBalance;
+  } else {
+    openingBalanceExpected = null;
+    openingBalanceForm.elements.amount.value = "";
+  }
+  saveOpeningBalanceButton.disabled = !accounts.length || savingOpeningBalance;
+  saveTransferButton.disabled = accounts.length < 2 || savingTransfer;
+}
+
+async function refreshAccounts() {
+  try {
+    const response = await fetch("/api/opciones");
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "No fue posible consultar las cuentas.");
+    renderAccounts(data.accounts);
+    accountStatus.textContent = "";
+  } catch (error) {
+    accountStatus.textContent = error instanceof Error ? error.message : "No fue posible consultar las cuentas.";
+  }
+}
+
+async function loadMovements(month) {
+  try {
+    const response = await fetch(`/api/movimientos?mes=${encodeURIComponent(month)}`);
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "No fue posible consultar los movimientos.");
+    document.querySelector("#income-total").textContent = formatMoney(data.incomeTotal);
+    incomeMovements.replaceChildren();
+    const otherMovements = data.movements.filter((movement) => movement.type !== "expense");
+    for (const movement of otherMovements) {
+      const item = document.createElement("li");
+      const detail = document.createElement("div");
+      const description = document.createElement("strong");
+      const metadata = document.createElement("div");
+      const amount = document.createElement("strong");
+      const actions = document.createElement("div");
+      const remove = document.createElement("button");
+      item.className = "other-movement";
+      description.textContent = movement.description;
+      metadata.className = "other-movement-meta";
+      const date = movement.date.split("-").reverse().join("/");
+      const type = movement.type === "income" ? "Ingreso" : "Transferencia";
+      const account = movement.destinationAccount
+        ? `${movement.account} → ${movement.destinationAccount}`
+        : movement.account;
+      const category = movement.category ? ` · ${displayName(movement.category)}` : "";
+      metadata.textContent = `${date} · ${type} · ${account}${category}`;
+      detail.append(description, metadata);
+      amount.textContent = formatMoney(movement.amount);
+      actions.className = "movement-actions";
+      actions.append(amount);
+      remove.type = "button";
+      remove.className = "delete-button";
+      remove.textContent = "Eliminar";
+      remove.setAttribute("aria-label", `Eliminar ${type.toLowerCase()} ${movement.description}`);
+      remove.addEventListener("click", () => deleteOtherMovement(movement));
+      actions.append(remove);
+      item.append(detail, actions);
+      incomeMovements.append(item);
+    }
+    incomeMovementsEmpty.hidden = otherMovements.length !== 0;
+  } catch (error) {
+    movementStatus.textContent = error instanceof Error ? error.message : "No fue posible consultar los movimientos.";
+  }
+}
+
+async function deleteOtherMovement(movement) {
+  const type = movement.type === "income" ? "ingreso" : "transferencia";
+  if (!confirm(`¿Eliminar este ${type} de ${formatMoney(movement.amount)}? Esta acción no se puede deshacer.`)) return;
+  const path = movement.type === "income" ? "/api/ingresos" : "/api/transferencias";
+  const id = movement.id.slice(movement.id.indexOf("-") + 1);
+  try {
+    const response = await fetch(path, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id }),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || `No fue posible eliminar el ${type}.`);
+    movementStatus.textContent = `${type[0].toUpperCase()}${type.slice(1)} eliminado correctamente.`;
+    await loadExpenses();
+    await refreshAccounts();
+  } catch (error) {
+    movementStatus.textContent = error instanceof Error ? error.message : `No fue posible eliminar el ${type}.`;
+  }
+}
+
 function editExpense(expense) {
   if (deleting) {
     movementStatus.textContent = "Espera a que termine la eliminación.";
@@ -193,6 +325,7 @@ async function deleteExpense(expense, button) {
       formMessage.textContent = "La edición se canceló porque el gasto fue eliminado.";
     }
     const refreshed = await loadExpenses();
+    await refreshAccounts();
     movementStatus.textContent = refreshed
       ? "Gasto eliminado correctamente."
       : "Gasto eliminado, pero no se pudo actualizar la lista. Vuelve a consultar.";
@@ -212,8 +345,13 @@ async function loadExpenses() {
   budgetMonth = null;
   displayedBudgetMonth = null;
   budgetPanel.hidden = view !== "personal";
+  incomeMovementsPanel.hidden = view !== "personal";
+  document.querySelector("#accounts-panel").hidden = view !== "personal";
+  document.querySelector("#income-card").hidden = view !== "personal";
   updateBudgetForm();
   document.querySelector("#registration").hidden = view !== "personal";
+  document.querySelector("#income-registration").hidden = view !== "personal";
+  document.querySelector("#transfer-registration").hidden = view !== "personal";
   document.querySelector("#notice").textContent = view === "demo"
     ? "Vista de prueba: estos datos son ficticios y están separados de tu hogar personal."
     : "Hogar personal: los gastos que registres aquí son reales. La aplicación es local y no tiene autenticación.";
@@ -302,6 +440,7 @@ async function loadExpenses() {
     results.hidden = false;
     if (view === "personal") {
       displayedBudgetMonth = month;
+      await loadMovements(month);
       await loadBudgets(month);
     }
     return true;
@@ -320,21 +459,34 @@ async function loadOptions() {
     for (const [select, values] of [
       [expenseForm.elements.accountId, data.accounts],
       [expenseForm.elements.categoryId, data.categories],
+      [incomeForm.elements.accountId, data.accounts],
+      [incomeForm.elements.categoryId, data.incomeCategories],
+      [transferForm.elements.sourceAccountId, data.accounts],
+      [transferForm.elements.destinationAccountId, data.accounts],
       [budgetForm.elements.categoryId, data.categories],
     ]) {
       for (const value of values) {
         const option = document.createElement("option");
         option.value = value.id;
-        option.textContent = displayName(value.name);
+        option.textContent = value.name ? displayName(value.name) : "";
         select.append(option);
       }
     }
+    renderAccounts(data.accounts);
     budgetOptionsAvailable = data.categories.length > 0;
+    incomeOptionsAvailable = data.incomeCategories.length > 0;
     updateBudgetForm();
+    saveIncomeButton.disabled = !data.accounts.length || !incomeOptionsAvailable;
     if (!data.accounts.length || !data.categories.length) {
       formMessage.textContent = "El hogar necesita una cuenta activa en CLP y categorías de gastos para registrar movimientos.";
     } else {
       saveButton.disabled = false;
+    }
+    if (!data.accounts.length || !data.incomeCategories.length) {
+      incomeFormMessage.textContent = "El hogar necesita una cuenta activa en CLP y categorías de ingresos.";
+    }
+    if (data.accounts.length < 2) {
+      transferFormMessage.textContent = "Necesitas al menos dos cuentas activas en CLP para transferir dinero.";
     }
     if (!viewTouched) {
       viewInput.value = "personal";
@@ -345,6 +497,116 @@ async function loadOptions() {
     budgetFormMessage.textContent = "No fue posible cargar las categorías para configurar presupuestos.";
   }
 }
+
+openingBalanceForm.elements.accountId.addEventListener("change", () => {
+  const account = accounts.find((item) => String(item.id) === openingBalanceForm.elements.accountId.value);
+  openingBalanceExpected = account?.openingBalance ?? null;
+  openingBalanceForm.elements.amount.value = account?.openingBalance ?? "";
+});
+
+openingBalanceForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (savingOpeningBalance || openingBalanceExpected === null) return;
+  savingOpeningBalance = true;
+  saveOpeningBalanceButton.disabled = true;
+  openingBalanceMessage.textContent = "Guardando saldo inicial...";
+  try {
+    const response = await fetch("/api/cuentas/saldo-inicial", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        accountId: Number(openingBalanceForm.elements.accountId.value),
+        amount: openingBalanceForm.elements.amount.value,
+        expectedAmount: openingBalanceExpected,
+      }),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "No fue posible guardar el saldo inicial.");
+    openingBalanceMessage.textContent = "Saldo inicial actualizado correctamente.";
+    await refreshAccounts();
+  } catch (error) {
+    openingBalanceMessage.textContent = error instanceof Error ? error.message : "No fue posible guardar el saldo inicial.";
+  } finally {
+    savingOpeningBalance = false;
+    saveOpeningBalanceButton.disabled = !accounts.length;
+  }
+});
+
+incomeForm.elements.date.value = todayText;
+incomeForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (savingIncome) return;
+  const values = new FormData(incomeForm);
+  savingIncome = true;
+  saveIncomeButton.disabled = true;
+  incomeFormMessage.textContent = "Guardando ingreso...";
+  try {
+    const response = await fetch("/api/ingresos", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        merchant: values.get("merchant"),
+        amount: values.get("amount"),
+        date: values.get("date"),
+        categoryId: Number(values.get("categoryId")),
+        accountId: Number(values.get("accountId")),
+      }),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "No fue posible guardar el ingreso.");
+    const date = values.get("date");
+    incomeForm.reset();
+    incomeForm.elements.date.value = todayText;
+    incomeFormMessage.textContent = "Ingreso registrado correctamente.";
+    monthInput.value = date.slice(0, 7);
+    viewInput.value = "personal";
+    await loadExpenses();
+    await refreshAccounts();
+  } catch (error) {
+    incomeFormMessage.textContent = error instanceof Error ? error.message : "No fue posible guardar el ingreso.";
+  } finally {
+    savingIncome = false;
+    saveIncomeButton.disabled = !accounts.length || !incomeOptionsAvailable;
+  }
+});
+
+transferForm.elements.date.value = todayText;
+transferForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (savingTransfer) return;
+  const values = new FormData(transferForm);
+  savingTransfer = true;
+  saveTransferButton.disabled = true;
+  transferFormMessage.textContent = "Guardando transferencia...";
+  try {
+    const response = await fetch("/api/transferencias", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        amount: values.get("amount"),
+        date: values.get("date"),
+        sourceAccountId: Number(values.get("sourceAccountId")),
+        destinationAccountId: Number(values.get("destinationAccountId")),
+        note: values.get("note"),
+      }),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "No fue posible guardar la transferencia.");
+    const date = values.get("date");
+    transferForm.reset();
+    transferForm.elements.date.value = todayText;
+    transferFormMessage.textContent = "Transferencia registrada correctamente.";
+    monthInput.value = date.slice(0, 7);
+    viewInput.value = "personal";
+    await loadExpenses();
+    await refreshAccounts();
+  } catch (error) {
+    transferFormMessage.textContent = error instanceof Error ? error.message : "No fue posible guardar la transferencia.";
+  } finally {
+    savingTransfer = false;
+    saveTransferButton.disabled = accounts.length < 2;
+  }
+});
 
 budgetForm.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -433,6 +695,7 @@ expenseForm.addEventListener("submit", async (event) => {
     monthInput.value = expense.date.slice(0, 7);
     viewInput.value = "personal";
     await loadExpenses();
+    await refreshAccounts();
   } catch (error) {
     formMessage.textContent = error instanceof Error ? error.message : "No fue posible guardar el gasto.";
   } finally {
