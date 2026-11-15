@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mis finanzas · Demo</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/dashboard.js" defer></script>
+</head>
+<body>
+  <header>
+    <div class="topbar"><strong>◈ Mis finanzas</strong><span>DEMO · SOLO LECTURA</span></div>
+  </header>
+  <main>
+    <div class="intro">
+      <div>
+        <p class="eyebrow">TU RESUMEN MENSUAL</p>
+        <h1>Conoce tus gastos</h1>
+        <p>Un primer vistazo a los movimientos del hogar de prueba.</p>
+      </div>
+      <form id="month-form">
+        <label for="month">Selecciona un mes</label>
+        <div><input id="month" type="month" min="1900-01" max="9999-12" required><button>Consultar</button></div>
+      </form>
+    </div>
+    <p class="notice">Estos datos son ficticios. Esta página aún no permite registrar ni modificar movimientos.</p>
+    <p id="message" role="status" aria-live="polite"></p>
+    <section id="results" hidden aria-label="Resumen de gastos">
+      <div class="cards">
+        <article class="card total"><p>Total gastado</p><strong id="total"></strong><small>En el mes seleccionado</small></article>
+        <article class="card"><p>Movimientos</p><strong id="count"></strong><small>Gastos registrados</small></article>
+      </div>
+      <section class="panel">
+        <p class="eyebrow">DISTRIBUCIÓN</p>
+        <h2>Gastos por categoría</h2>
+        <p id="empty" hidden>No hay gastos para este mes.</p>
+        <ul id="categories"></ul>
+      </section>
+    </section>
+  </main>
+</body>
+</html>
