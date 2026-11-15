@@ -224,3 +224,72 @@ test("un mes sin gastos devuelve total cero", async (t) => {
   const response = await fetch(`${url}/api/gastos?mes=2025-01`);
   assert.deepEqual(await response.json(), { month: "2025-01", total: "0", categories: [], expenses: [] });
 });
+
+test("consulta presupuestos y gastos personales del mes sin convertir importes", async (t) => {
+  const queries = [];
+  const categories = [
+    { categoryId: 5, category: "Hogar", budget: "0.00", spent: "0.50", difference: "0.50", exceeded: true },
+    { categoryId: 6, category: "Ocio", budget: null, spent: "5.00", difference: null, exceeded: null },
+  ];
+  const url = await startServer(t, {
+    async query(sql, params) {
+      queries.push({ sql, params });
+      return { rows: queries.length === 1 ? [{ household_id: 7, member_id: 3 }] : categories };
+    },
+  }, { householdId: 7 });
+  const response = await fetch(`${url}/api/presupuestos?mes=2026-11`);
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { month: "2026-11", categories });
+  assert.deepEqual(queries[1].params, [7, 3, "2026-11"]);
+});
+
+test("crea un límite cero y actualiza con el monto previamente consultado", async (t) => {
+  const queries = [];
+  const url = await startServer(t, {
+    async query(sql, params) {
+      queries.push({ sql, params });
+      return { rows: queries.length % 2 ? [{ household_id: 7, member_id: 3 }] : [{ budget_id: 1 }] };
+    },
+  }, { householdId: 7 });
+  const write = (method, body) => fetch(`${url}/api/presupuestos`, {
+    method, headers: { Origin: url, "Content-Type": "application/json" }, body: JSON.stringify(body),
+  });
+  const budget = { month: "2026-11", categoryId: 5, amount: "0" };
+  assert.equal((await write("POST", budget)).status, 201);
+  assert.deepEqual(queries[1].params, [7, 3, 5, "2026-11", "0"]);
+  assert.equal((await write("PUT", { ...budget, amount: "50", expectedAmount: "0.50" })).status, 200);
+  assert.deepEqual(queries[3].params, [7, 3, 5, "2026-11", "50", "0.50"]);
+});
+
+test("rechaza datos de presupuesto inválidos, origen ajeno y meses ambiguos", async (t) => {
+  const url = await startServer(t, { query() { throw new Error("No debe consultar la base"); } }, { householdId: 7 });
+  const valid = { month: "2026-11", categoryId: 5, amount: "100" };
+  const write = (method, body, origin = url) => fetch(`${url}/api/presupuestos`, {
+    method, headers: { Origin: origin, "Content-Type": "application/json" }, body: JSON.stringify(body),
+  });
+  assert.equal((await write("POST", valid, "https://otro-sitio.example")).status, 403);
+  for (const change of [
+    { month: "2026-13" }, { categoryId: 0 }, { categoryId: 1.5 },
+    { amount: "-1" }, { amount: "1.5" }, { amount: "1000000000000" }, { amount: 0 },
+  ]) assert.equal((await write("POST", { ...valid, ...change })).status, 400);
+  assert.equal((await write("PUT", valid)).status, 400);
+  assert.equal((await fetch(`${url}/api/presupuestos?mes=2026-11&mes=2026-10`)).status, 400);
+});
+
+test("no sobrescribe presupuestos existentes o cambiados y exige hogar personal", async (t) => {
+  let call = 0;
+  const url = await startServer(t, {
+    async query() {
+      call += 1;
+      return { rows: call % 2 ? [{ household_id: 7, member_id: 3 }] : [] };
+    },
+  }, { householdId: 7 });
+  const write = (method, body) => fetch(`${url}/api/presupuestos`, {
+    method, headers: { Origin: url, "Content-Type": "application/json" }, body: JSON.stringify(body),
+  });
+  const budget = { month: "2026-11", categoryId: 5, amount: "100" };
+  assert.equal((await write("POST", budget)).status, 409);
+  assert.equal((await write("PUT", { ...budget, expectedAmount: "50.00" })).status, 409);
+  const noMember = await startServer(t, { async query() { return { rows: [] }; } }, { householdId: 7 });
+  assert.equal((await fetch(`${noMember}/api/presupuestos?mes=2026-11`)).status, 409);
+});

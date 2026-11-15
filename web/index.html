@@ -45,6 +45,31 @@
         <p id="empty" hidden>No hay gastos para este mes.</p>
         <ul id="categories" aria-label="Distribución de gastos por categoría"></ul>
       </section>
+      <section class="panel" id="budget-panel" hidden>
+        <p class="eyebrow">PLANIFICACIÓN PERSONAL</p>
+        <h2>Presupuestos por categoría</h2>
+        <p id="budget-period"></p>
+        <p class="chart-description">Solo gastos personales en CLP con categorías de gasto. Los gastos sin categoría no se comparan. Cada mes se configura por separado.</p>
+        <p id="budget-status" role="status" aria-live="polite"></p>
+        <ul id="budgets" aria-label="Presupuestos y gastos por categoría"></ul>
+        <form id="budget-form">
+          <h3 id="budget-form-title">Crear presupuesto</h3>
+          <p id="budget-form-period"></p>
+          <div class="form-grid">
+            <label>Categoría
+              <select name="categoryId" required><option value="">Selecciona una categoría</option></select>
+            </label>
+            <label>Límite en CLP
+              <input name="amount" type="number" min="0" max="999999999999" step="1" required placeholder="Ej. 150000">
+            </label>
+          </div>
+          <p id="budget-form-message" role="status" aria-live="polite"></p>
+          <div class="form-actions">
+            <button id="save-budget" type="submit" disabled>Crear presupuesto</button>
+            <button id="cancel-budget-edit" class="secondary-button" type="button" hidden>Cancelar edición</button>
+          </div>
+        </form>
+      </section>
       <section class="panel">
         <p class="eyebrow">DETALLE DEL MES</p>
         <h2>Movimientos</h2>

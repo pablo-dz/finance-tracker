@@ -12,6 +12,13 @@ const expenseForm = document.querySelector("#expense-form");
 const formMessage = document.querySelector("#form-message");
 const saveButton = document.querySelector("#save-expense");
 const cancelEditButton = document.querySelector("#cancel-edit");
+const budgetPanel = document.querySelector("#budget-panel");
+const budgetList = document.querySelector("#budgets");
+const budgetStatus = document.querySelector("#budget-status");
+const budgetForm = document.querySelector("#budget-form");
+const budgetFormMessage = document.querySelector("#budget-form-message");
+const saveBudgetButton = document.querySelector("#save-budget");
+const cancelBudgetButton = document.querySelector("#cancel-budget-edit");
 const formatter = new Intl.NumberFormat("es-CL");
 const labels = {
   Rent: "Arriendo", Utilities: "Servicios", Groceries: "Supermercado",
@@ -28,11 +35,91 @@ let viewTouched = false;
 let editingId = null;
 let saving = false;
 let deleting = false;
+let budgetRequest = 0;
+let budgetMonth = null;
+let displayedBudgetMonth = null;
+let editingBudget = null;
+let savingBudget = false;
+let budgetOptionsAvailable = false;
 
 function formatMoney(value) {
   const [whole, fraction = ""] = value.split(".");
   const decimals = fraction.replace(/0+$/, "");
   return `$${formatter.format(BigInt(whole))}${decimals ? `,${decimals}` : ""}`;
+}
+
+function updateBudgetForm() {
+  const month = editingBudget ? editingBudget.month : budgetMonth;
+  document.querySelector("#budget-form-title").textContent = editingBudget ? "Editar presupuesto" : "Crear presupuesto";
+  document.querySelector("#budget-form-period").textContent = month ? `Mes del presupuesto: ${month}` : "Consulta un mes para configurar presupuestos.";
+  budgetForm.elements.categoryId.disabled = editingBudget !== null;
+  saveBudgetButton.textContent = editingBudget ? "Guardar cambios" : "Crear presupuesto";
+  saveBudgetButton.disabled = savingBudget || !budgetOptionsAvailable || !month;
+  cancelBudgetButton.hidden = editingBudget === null;
+  cancelBudgetButton.disabled = savingBudget;
+}
+
+function resetBudgetForm() {
+  editingBudget = null;
+  budgetForm.reset();
+  updateBudgetForm();
+}
+
+async function loadBudgets(month) {
+  const requestId = ++budgetRequest;
+  budgetMonth = null;
+  budgetList.replaceChildren();
+  budgetStatus.textContent = "Cargando presupuestos...";
+  updateBudgetForm();
+  try {
+    const response = await fetch(`/api/presupuestos?mes=${encodeURIComponent(month)}`);
+    const data = await response.json();
+    if (requestId !== budgetRequest) return;
+    if (!response.ok) throw new Error(data.error || "No fue posible consultar los presupuestos.");
+    budgetMonth = month;
+    document.querySelector("#budget-period").textContent = `Mes consultado: ${month}`;
+    for (const category of data.categories) {
+      const item = document.createElement("li");
+      const detail = document.createElement("div");
+      const name = document.createElement("strong");
+      const values = document.createElement("p");
+      item.className = "budget-item";
+      name.textContent = displayName(category.category);
+      values.textContent = category.budget === null
+        ? `Gastado: ${formatMoney(category.spent)} · Sin presupuesto`
+        : `Gastado: ${formatMoney(category.spent)} · Límite: ${formatMoney(category.budget)} · ${category.exceeded ? "Excedido" : "Disponible"}: ${formatMoney(category.difference)}`;
+      if (category.exceeded) values.className = "budget-exceeded";
+      detail.append(name, values);
+      item.append(detail);
+      if (category.budget !== null) {
+        const edit = document.createElement("button");
+        edit.type = "button";
+        edit.className = "edit-button";
+        edit.textContent = "Cambiar límite";
+        edit.setAttribute("aria-label", `Cambiar límite de ${displayName(category.category)} para ${month}`);
+        edit.addEventListener("click", () => {
+          if (savingBudget) return;
+          if (editingBudget && !confirm("Hay una edición en curso. ¿Descartar esos cambios?")) return;
+          editingBudget = { categoryId: category.categoryId, month, expectedAmount: category.budget };
+          budgetForm.elements.categoryId.value = String(category.categoryId);
+          const [whole, fraction = ""] = category.budget.split(".");
+          budgetForm.elements.amount.value = /[^0]/.test(fraction) ? "" : whole;
+          budgetFormMessage.textContent = /[^0]/.test(fraction)
+            ? "El límite actual tiene centavos; ingresa el nuevo límite en pesos enteros." : "";
+          updateBudgetForm();
+          budgetForm.elements.amount.focus();
+        });
+        item.append(edit);
+      }
+      budgetList.append(item);
+    }
+    budgetStatus.textContent = data.categories.length ? "" : "No hay categorías de gastos disponibles.";
+    updateBudgetForm();
+  } catch (error) {
+    if (requestId !== budgetRequest) return;
+    budgetStatus.textContent = error instanceof Error ? error.message : "No fue posible consultar los presupuestos.";
+    updateBudgetForm();
+  }
 }
 
 function resetExpenseForm() {
@@ -121,6 +208,11 @@ async function loadExpenses() {
   const requestId = ++currentRequest;
   const month = monthInput.value;
   const view = viewInput.value;
+  ++budgetRequest;
+  budgetMonth = null;
+  displayedBudgetMonth = null;
+  budgetPanel.hidden = view !== "personal";
+  updateBudgetForm();
   document.querySelector("#registration").hidden = view !== "personal";
   document.querySelector("#notice").textContent = view === "demo"
     ? "Vista de prueba: estos datos son ficticios y están separados de tu hogar personal."
@@ -208,6 +300,10 @@ async function loadExpenses() {
     document.querySelector("#movements-empty").hidden = data.expenses.length !== 0;
     message.textContent = "";
     results.hidden = false;
+    if (view === "personal") {
+      displayedBudgetMonth = month;
+      await loadBudgets(month);
+    }
     return true;
   } catch (error) {
     if (requestId !== currentRequest) return false;
@@ -221,8 +317,11 @@ async function loadOptions() {
     const response = await fetch("/api/opciones");
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || "No fue posible cargar el formulario.");
-    for (const [field, values] of [["accountId", data.accounts], ["categoryId", data.categories]]) {
-      const select = expenseForm.elements[field];
+    for (const [select, values] of [
+      [expenseForm.elements.accountId, data.accounts],
+      [expenseForm.elements.categoryId, data.categories],
+      [budgetForm.elements.categoryId, data.categories],
+    ]) {
       for (const value of values) {
         const option = document.createElement("option");
         option.value = value.id;
@@ -230,18 +329,70 @@ async function loadOptions() {
         select.append(option);
       }
     }
+    budgetOptionsAvailable = data.categories.length > 0;
+    updateBudgetForm();
     if (!data.accounts.length || !data.categories.length) {
-      throw new Error("El hogar necesita una cuenta activa en CLP y categorías de gastos.");
+      formMessage.textContent = "El hogar necesita una cuenta activa en CLP y categorías de gastos para registrar movimientos.";
+    } else {
+      saveButton.disabled = false;
     }
-    saveButton.disabled = false;
     if (!viewTouched) {
       viewInput.value = "personal";
       loadExpenses();
     }
   } catch (error) {
     formMessage.textContent = error instanceof Error ? error.message : "No fue posible cargar el formulario.";
+    budgetFormMessage.textContent = "No fue posible cargar las categorías para configurar presupuestos.";
   }
 }
+
+budgetForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (savingBudget) return;
+  const month = editingBudget ? editingBudget.month : budgetMonth;
+  if (!month || !budgetOptionsAvailable) {
+    budgetFormMessage.textContent = "Consulta un mes y verifica que existan categorías de gastos.";
+    return;
+  }
+  const budget = {
+    month,
+    categoryId: editingBudget ? editingBudget.categoryId : Number(budgetForm.elements.categoryId.value),
+    amount: budgetForm.elements.amount.value,
+  };
+  const isEditing = editingBudget !== null;
+  if (isEditing) budget.expectedAmount = editingBudget.expectedAmount;
+  savingBudget = true;
+  updateBudgetForm();
+  budgetFormMessage.textContent = "Guardando presupuesto...";
+  try {
+    let response;
+    let data;
+    try {
+      response = await fetch("/api/presupuestos", {
+        method: isEditing ? "PUT" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(budget),
+      });
+      data = await response.json();
+    } catch {
+      throw new Error("No se pudo confirmar el cambio. Consulta el presupuesto antes de intentarlo de nuevo.");
+    }
+    if (!response.ok) throw new Error(data.error || "No fue posible guardar el presupuesto.");
+    resetBudgetForm();
+    budgetFormMessage.textContent = `Presupuesto de ${month} guardado correctamente.`;
+    if (!budgetPanel.hidden && displayedBudgetMonth) await loadBudgets(displayedBudgetMonth);
+  } catch (error) {
+    budgetFormMessage.textContent = error instanceof Error ? error.message : "No fue posible guardar el presupuesto.";
+  } finally {
+    savingBudget = false;
+    updateBudgetForm();
+  }
+});
+
+cancelBudgetButton.addEventListener("click", () => {
+  resetBudgetForm();
+  budgetFormMessage.textContent = "Edición cancelada.";
+});
 
 expenseForm.addEventListener("submit", async (event) => {
   event.preventDefault();
