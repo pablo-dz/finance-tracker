@@ -43,6 +43,11 @@ li { border-top: 1px solid #edf1ed; padding: 15px 0; }
 .chart-track { height: 9px; margin-top: 10px; background: #e8f0e9; border-radius: 6px; overflow: hidden; }
 .chart-bar { height: 100%; min-width: 2px; background: #368b5f; border-radius: inherit; }
 #empty { color: #6d8072; }
+.movement { display: flex; justify-content: space-between; gap: 16px; align-items: start; }
+.movement-detail { min-width: 0; overflow-wrap: anywhere; }
+.movement-meta, #movements-empty { color: #6d8072; font-size: 13px; }
+.movement-meta { margin-top: 6px; }
+.movement-amount { white-space: nowrap; }
 @media (max-width: 600px) {
   .intro { flex-direction: column; align-items: stretch; }
   .cards { grid-template-columns: 1fr; }

@@ -163,20 +163,35 @@ export function createDashboardServer(pool, { householdId = null } = {}) {
         }
 
         const result = await pool.query(
-          `SELECT COALESCE(c.name, 'Sin categoría') AS category,
-                  SUM(t.amount)::text AS total, COUNT(*)::int AS count,
-                  (SUM(SUM(t.amount)) OVER ())::text AS grand_total
-           FROM finance.transactions t
-           LEFT JOIN finance.category c
-             ON c.category_id = t.category_id AND c.household_id = t.household_id
-           WHERE t.household_id = $1 AND t.type = 'expense'
-             AND t.tx_date >= ($2 || '-01')::date
-             AND t.tx_date < (($2 || '-01')::date + interval '1 month')
-           GROUP BY c.category_id, c.name
-           ORDER BY SUM(t.amount) DESC, c.name`,
+          `WITH filtered AS (
+             SELECT t.transaction_id, t.tx_date, t.amount, t.merchant, t.note,
+                    c.category_id, c.name AS category
+             FROM finance.transactions t
+             LEFT JOIN finance.category c
+               ON c.category_id = t.category_id AND c.household_id = t.household_id
+             WHERE t.household_id = $1 AND t.type = 'expense'
+               AND t.tx_date >= ($2 || '-01')::date
+               AND t.tx_date < (($2 || '-01')::date + interval '1 month')
+           ), category_totals AS (
+             SELECT category_id, category, SUM(amount) AS amount, COUNT(*)::int AS count
+             FROM filtered GROUP BY category_id, category
+           ), total AS (
+             SELECT COALESCE(SUM(amount), 0) AS amount FROM filtered
+           )
+           SELECT total.amount::text AS total,
+             COALESCE((SELECT json_agg(json_build_object(
+               'category', COALESCE(category, 'Sin categoría'),
+               'total', amount::text, 'count', count, 'grand_total', total.amount::text
+             ) ORDER BY amount DESC, category) FROM category_totals), '[]'::json) AS categories,
+             COALESCE((SELECT json_agg(json_build_object(
+               'date', to_char(tx_date, 'YYYY-MM-DD'),
+               'description', COALESCE(NULLIF(BTRIM(merchant), ''), NULLIF(BTRIM(note), ''), 'Sin descripción'),
+               'category', COALESCE(category, 'Sin categoría'), 'amount', amount::text
+             ) ORDER BY tx_date DESC, transaction_id DESC) FROM filtered), '[]'::json) AS expenses
+           FROM total`,
           [selectedHousehold, month],
         );
-        sendJson(response, 200, { month, total: result.rows[0]?.grand_total ?? "0", categories: result.rows });
+        sendJson(response, 200, { month, ...result.rows[0] });
         return;
       }
 
