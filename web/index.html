@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Mis finanzas</title>
   <link rel="stylesheet" href="/styles.css">
-  <script src="/dashboard.js" defer></script>
+  <script src="/dashboard.js" type="module"></script>
 </head>
 <body>
   <header>
@@ -40,8 +40,9 @@
       <section class="panel">
         <p class="eyebrow">DISTRIBUCIÓN</p>
         <h2>Gastos por categoría</h2>
+        <p class="chart-description">Proporción de cada categoría respecto al total del mes.</p>
         <p id="empty" hidden>No hay gastos para este mes.</p>
-        <ul id="categories"></ul>
+        <ul id="categories" aria-label="Distribución de gastos por categoría"></ul>
       </section>
     </section>
     <section class="panel" id="registration">
