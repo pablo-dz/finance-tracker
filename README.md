@@ -65,8 +65,29 @@ ORDER BY gastado DESC;
 
 Usa `\q` para salir de `psql`. La diferencia entre ingresos y gastos no equivale necesariamente al ahorro real: puede haber transferencias u otros movimientos no registrados.
 
+## Dashboard web de prueba
+
+Necesitas Node.js 22 o superior y npm. Con PostgreSQL iniciado y los datos de prueba cargados, ejecuta desde la raíz del proyecto:
+
+```bash
+npm install
+PGDATABASE=finance_tracker npm start
+```
+
+Reemplaza `finance_tracker` por el nombre de tu base si es distinto. También puedes configurar la conexión con `DATABASE_URL`, o con las variables de PostgreSQL `PGHOST`, `PGPORT`, `PGUSER` y `PGPASSWORD`. No guardes contraseñas en archivos versionados.
+
+Abre [http://127.0.0.1:3000](http://127.0.0.1:3000). La página muestra el total y los gastos por categoría del mes seleccionado, solo para `[DEMO] Hogar de prueba`. No muestra gastos reales ni permite modificar datos. Para detenerla, presiona `Ctrl+C` en la terminal.
+
+Es una demo local sin autenticación; no la expongas a internet ni a redes compartidas. El servidor escucha únicamente en `127.0.0.1`.
+
+Para ejecutar las pruebas:
+
+```bash
+npm test
+```
+
 ## Próximos pasos
 
-En una siguiente etapa se puede construir una página web para registrar movimientos y visualizar gastos y presupuestos. Un servidor deberá acceder a PostgreSQL sin exponer sus credenciales en el navegador. Más adelante, el hogar compartido requerirá cuentas de usuario, autenticación y permisos; agregar integrantes a las tablas por sí solo no proporciona acceso seguro.
+En una siguiente etapa se puede permitir el registro de movimientos y comparar gastos con presupuestos. Más adelante, el hogar compartido requerirá cuentas de usuario, autenticación y permisos; agregar integrantes a las tablas por sí solo no proporciona acceso seguro.
 
 Trabaja en ramas de funcionalidad y abre un pull request hacia `main`.
