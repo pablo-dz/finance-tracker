@@ -18,6 +18,9 @@ input, select { border: 1px solid #cddbd0; background: white; min-width: 0; }
 button { background: #1f6041; color: white; border: 1px solid #1f6041; cursor: pointer; }
 button:hover { background: #164a31; }
 button:disabled { opacity: .6; cursor: not-allowed; }
+.form-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.secondary-button { color: #1f6041; background: white; }
+.secondary-button:hover { color: white; }
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 .form-grid label { margin: 0; }
 .form-grid input, .form-grid select { display: block; width: 100%; margin-top: 7px; }
@@ -48,9 +51,15 @@ li { border-top: 1px solid #edf1ed; padding: 15px 0; }
 .movement-meta, #movements-empty { color: #6d8072; font-size: 13px; }
 .movement-meta { margin-top: 6px; }
 .movement-amount { white-space: nowrap; }
+.movement-actions { display: flex; align-items: center; flex-shrink: 0; gap: 12px; }
+.edit-button { color: #1f6041; background: white; padding: 5px 8px; font-size: 13px; }
+.edit-button:hover { color: white; }
+.delete-button { color: #a53d3d; border-color: #dfb4b4; background: white; padding: 5px 8px; font-size: 13px; }
+.delete-button:hover { color: white; background: #a53d3d; border-color: #a53d3d; }
 @media (max-width: 600px) {
   .intro { flex-direction: column; align-items: stretch; }
   .cards { grid-template-columns: 1fr; }
   .filters { flex-wrap: wrap; }
   .form-grid { grid-template-columns: 1fr; }
+  .movement-actions { flex-direction: column; align-items: end; gap: 7px; }
 }

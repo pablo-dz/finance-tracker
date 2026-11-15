@@ -32,6 +32,7 @@
     </div>
     <p class="notice" id="notice"></p>
     <p id="message" role="status" aria-live="polite"></p>
+    <p id="movement-status" role="status" aria-live="polite"></p>
     <section id="results" hidden aria-label="Resumen de gastos">
       <div class="cards">
         <article class="card total"><p>Total gastado</p><strong id="total"></strong><small>En el mes seleccionado</small></article>
@@ -53,7 +54,7 @@
     </section>
     <section class="panel" id="registration">
       <p class="eyebrow">HOGAR PERSONAL</p>
-      <h2>Registrar gasto</h2>
+      <h2 id="form-title">Registrar gasto</h2>
       <p>El gasto se guardará en tu hogar personal, no en los datos de prueba.</p>
       <form id="expense-form">
         <div class="form-grid">
@@ -74,7 +75,10 @@
           </label>
         </div>
         <p id="form-message" role="status" aria-live="polite"></p>
-        <button id="save-expense" type="submit" disabled>Guardar gasto</button>
+        <div class="form-actions">
+          <button id="save-expense" type="submit" disabled>Guardar gasto</button>
+          <button id="cancel-edit" class="secondary-button" type="button" hidden>Cancelar edición</button>
+        </div>
       </form>
     </section>
   </main>
