@@ -31,6 +31,17 @@ function validDate(value) {
   return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
 }
 
+function validMonth(value) {
+  return typeof value === "string" && /^(?:19\d{2}|[2-9]\d{3})-(?:0[1-9]|1[0-2])$/.test(value);
+}
+
+function validBudget(body) {
+  return body && typeof body === "object" && !Array.isArray(body)
+    && validMonth(body.month)
+    && Number.isSafeInteger(body.categoryId) && body.categoryId > 0 && body.categoryId <= 2147483647
+    && typeof body.amount === "string" && /^(?:0|[1-9]\d{0,11})$/.test(body.amount);
+}
+
 function validExpense(body) {
   return body && typeof body === "object" && !Array.isArray(body)
     && typeof body.merchant === "string" && body.merchant.trim().length > 0 && body.merchant.trim().length <= 100
@@ -49,7 +60,9 @@ export function createDashboardServer(pool, { householdId = null } = {}) {
   return createServer(async (request, response) => {
     try {
       const url = new URL(request.url, "http://localhost");
-      if (url.pathname === "/api/gastos" && ["POST", "PUT", "DELETE"].includes(request.method)) {
+      const expenseWrite = url.pathname === "/api/gastos" && ["POST", "PUT", "DELETE"].includes(request.method);
+      const budgetWrite = url.pathname === "/api/presupuestos" && ["POST", "PUT"].includes(request.method);
+      if (expenseWrite || budgetWrite) {
         const origin = `http://127.0.0.1:${request.socket.localPort}`;
         if (request.headers.host !== `127.0.0.1:${request.socket.localPort}` || request.headers.origin !== origin
           || request.headers["content-type"] !== "application/json") {
@@ -79,18 +92,60 @@ export function createDashboardServer(pool, { householdId = null } = {}) {
           sendJson(response, 400, { error: "El contenido de la solicitud no es válido." });
           return;
         }
-        if (request.method === "DELETE" && (!expense || typeof expense !== "object"
+        if (budgetWrite && (!validBudget(expense) || (request.method === "PUT"
+          && (typeof expense.expectedAmount !== "string"
+            || !/^(?:0|[1-9]\d{0,11})(?:\.\d{1,2})?$/.test(expense.expectedAmount))))) {
+          sendJson(response, 400, { error: "Selecciona un mes y una categoría válidos e ingresa un límite entero en CLP." });
+          return;
+        }
+        if (expenseWrite && request.method === "DELETE" && (!expense || typeof expense !== "object"
           || Array.isArray(expense) || !validTransactionId(expense.id))) {
           sendJson(response, 400, { error: "El identificador del gasto no es válido." });
           return;
         }
-        if (request.method !== "DELETE" && (!validExpense(expense) || (request.method === "PUT" && !validTransactionId(expense.id)))) {
+        if (expenseWrite && request.method !== "DELETE" && (!validExpense(expense) || (request.method === "PUT" && !validTransactionId(expense.id)))) {
           sendJson(response, 400, { error: "Revisa la descripción, el monto entero en CLP, la fecha, la categoría y la cuenta." });
           return;
         }
         const member = await personalMember(pool, householdId);
         if (!member) {
           sendJson(response, 409, { error: "Configura un hogar personal en CLP con un único integrante activo." });
+          return;
+        }
+        if (budgetWrite) {
+          const parameters = [member.household_id, member.member_id, expense.categoryId, expense.month, expense.amount];
+          const result = request.method === "POST" ? await pool.query(
+            `INSERT INTO finance.budget (household_id, member_id, category_id, month_start, amount)
+             SELECT h.household_id, m.member_id, c.category_id, ($4 || '-01')::date, $5::numeric
+             FROM finance.household h
+             JOIN finance.member m ON m.household_id = h.household_id AND m.member_id = $2 AND m.is_active
+             JOIN finance.category c ON c.household_id = h.household_id AND c.category_id = $3 AND c.kind = 'expense'
+             WHERE h.household_id = $1 AND h.base_currency = 'CLP' AND h.name <> '[DEMO] Hogar de prueba'
+               AND (SELECT count(*) FROM finance.member WHERE household_id = h.household_id AND is_active) = 1
+             ON CONFLICT (household_id, (COALESCE(member_id, 0)), category_id, month_start) DO NOTHING
+             RETURNING budget_id`,
+            parameters,
+          ) : await pool.query(
+            `UPDATE finance.budget b SET amount = $5::numeric
+             FROM finance.household h, finance.member m, finance.category c
+             WHERE h.household_id = $1 AND h.base_currency = 'CLP' AND h.name <> '[DEMO] Hogar de prueba'
+               AND m.household_id = h.household_id AND m.member_id = $2 AND m.is_active
+               AND c.household_id = h.household_id AND c.category_id = $3 AND c.kind = 'expense'
+               AND b.household_id = h.household_id AND b.member_id = m.member_id AND b.category_id = c.category_id
+               AND b.month_start = ($4 || '-01')::date AND b.amount = $6::numeric
+               AND (SELECT count(*) FROM finance.member WHERE household_id = h.household_id AND is_active) = 1
+             RETURNING b.budget_id`,
+            [...parameters, expense.expectedAmount],
+          );
+          if (result.rows.length !== 1) {
+            sendJson(response, 409, {
+              error: request.method === "POST"
+                ? "La categoría no está disponible o ya tiene un presupuesto para ese mes. Vuelve a consultar."
+                : "El presupuesto cambió o ya no está disponible. Vuelve a consultar antes de editarlo.",
+            });
+            return;
+          }
+          sendJson(response, request.method === "POST" ? 201 : 200, { message: "Presupuesto guardado correctamente." });
           return;
         }
         if (request.method === "DELETE") {
@@ -153,7 +208,9 @@ export function createDashboardServer(pool, { householdId = null } = {}) {
       }
 
       if (request.method !== "GET") {
-        response.writeHead(405, { Allow: url.pathname === "/api/gastos" ? "GET, POST, PUT, DELETE" : "GET" });
+        const allow = url.pathname === "/api/gastos" ? "GET, POST, PUT, DELETE"
+          : url.pathname === "/api/presupuestos" ? "GET, POST, PUT" : "GET";
+        response.writeHead(405, { Allow: allow });
         response.end();
         return;
       }
@@ -178,9 +235,47 @@ export function createDashboardServer(pool, { householdId = null } = {}) {
         return;
       }
 
+      if (url.pathname === "/api/presupuestos") {
+        const month = url.searchParams.get("mes");
+        if (!validMonth(month) || url.searchParams.getAll("mes").length !== 1) {
+          sendJson(response, 400, { error: "Selecciona un mes válido." });
+          return;
+        }
+        const member = await personalMember(pool, householdId);
+        if (!member) {
+          sendJson(response, 409, { error: "Configura un hogar personal en CLP con un único integrante activo." });
+          return;
+        }
+        const result = await pool.query(
+          `WITH spent AS (
+             SELECT t.category_id, SUM(t.amount) AS amount
+             FROM finance.transactions t
+             JOIN finance.account a ON a.account_id = t.account_id
+               AND a.household_id = t.household_id AND a.currency = 'CLP'
+             WHERE t.household_id = $1 AND t.member_id = $2 AND t.type = 'expense'
+               AND t.tx_date >= ($3 || '-01')::date
+               AND t.tx_date < (($3 || '-01')::date + interval '1 month')
+             GROUP BY t.category_id
+           )
+           SELECT c.category_id AS "categoryId", c.name AS category, b.amount::text AS budget,
+                  COALESCE(s.amount, 0)::text AS spent,
+                  ABS(b.amount - COALESCE(s.amount, 0))::text AS difference,
+                  b.amount < COALESCE(s.amount, 0) AS exceeded
+           FROM finance.category c
+           LEFT JOIN finance.budget b ON b.household_id = c.household_id AND b.member_id = $2
+             AND b.category_id = c.category_id AND b.month_start = ($3 || '-01')::date
+           LEFT JOIN spent s ON s.category_id = c.category_id
+           WHERE c.household_id = $1 AND c.kind = 'expense'
+           ORDER BY c.name, c.category_id`,
+          [member.household_id, member.member_id, month],
+        );
+        sendJson(response, 200, { month, categories: result.rows });
+        return;
+      }
+
       if (url.pathname === "/api/gastos") {
         const month = url.searchParams.get("mes");
-        if (!month || !/^(?:19\d{2}|[2-9]\d{3})-(?:0[1-9]|1[0-2])$/.test(month) || url.searchParams.getAll("mes").length !== 1) {
+        if (!validMonth(month) || url.searchParams.getAll("mes").length !== 1) {
           sendJson(response, 400, { error: "Selecciona un mes válido." });
           return;
         }

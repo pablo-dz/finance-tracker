@@ -56,6 +56,12 @@ li { border-top: 1px solid #edf1ed; padding: 15px 0; }
 .edit-button:hover { color: white; }
 .delete-button { color: #a53d3d; border-color: #dfb4b4; background: white; padding: 5px 8px; font-size: 13px; }
 .delete-button:hover { color: white; background: #a53d3d; border-color: #a53d3d; }
+.budget-item { display: flex; justify-content: space-between; gap: 16px; align-items: center; }
+.budget-item > div { min-width: 0; overflow-wrap: anywhere; }
+.budget-item button { flex-shrink: 0; }
+.budget-item p { color: #64766a; font-size: 13px; margin: 6px 0 0; }
+.budget-item .budget-exceeded { color: #a53d3d; font-weight: 600; }
+#budget-form { border-top: 1px solid #edf1ed; padding-top: 10px; }
 @media (max-width: 600px) {
   .intro { flex-direction: column; align-items: stretch; }
   .cards { grid-template-columns: 1fr; }

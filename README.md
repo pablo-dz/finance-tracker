@@ -74,7 +74,7 @@ npm install
 PGDATABASE=finance_tracker FINANCE_HOUSEHOLD_ID=1 npm start
 ```
 
-Reemplaza `finance_tracker` y `1` por el nombre de tu base y el ID de tu hogar personal. Puedes consultar los hogares con `psql -d finance_tracker -c "SELECT household_id, name FROM finance.household;"`. La aplicación requiere un hogar personal en CLP con exactamente un integrante activo, al menos una cuenta activa en CLP y categorías de gastos. No acepta el hogar de prueba como hogar personal.
+Reemplaza `finance_tracker` y `1` por el nombre de tu base y el ID de tu hogar personal. Puedes consultar los hogares con `psql -d finance_tracker -c "SELECT household_id, name FROM finance.household;"`. La vista personal requiere un hogar en CLP con exactamente un integrante activo y categorías de gastos. Para registrar gastos también necesitas al menos una cuenta activa en CLP. No acepta el hogar de prueba como hogar personal.
 
 Si tu hogar aún no tiene cuenta, consulta los IDs de sus integrantes y crea una cuenta para el integrante correspondiente. Por ejemplo, **sustituye ambos IDs** por los de tu base antes de ejecutar:
 
@@ -90,6 +90,8 @@ También puedes configurar la conexión con `DATABASE_URL`, o con las variables 
 
 Abre [http://127.0.0.1:3000](http://127.0.0.1:3000). Si el puerto 3000 está ocupado, puedes indicar otro, por ejemplo `PORT=3001 PGDATABASE=finance_tracker FINANCE_HOUSEHOLD_ID=1 npm start`, y abrir `http://127.0.0.1:3001`. Selecciona la vista personal para registrar, editar y eliminar tus gastos, y consultar el total mensual, el gráfico y la lista de movimientos. Para editar, usa el botón junto al movimiento y guarda los cambios o cancela; la edición solo admite pesos enteros. Para eliminar, usa el botón junto al gasto y confirma: la eliminación es permanente. La vista de prueba permanece separada y es de solo lectura. Sin `FINANCE_HOUSEHOLD_ID` puedes consultar la demo, pero no modificar gastos. Para detener el servidor, presiona `Ctrl+C`.
 
+En la vista personal, consulta un mes y crea un presupuesto para cada categoría que quieras controlar. El límite se configura por separado para cada mes, en pesos enteros; también puede ser cero. Las categorías sin límite aparecen como «Sin presupuesto». La comparación muestra el gasto personal de ese mes en CLP, el límite y lo disponible o excedido, conservando los centavos de gastos existentes. No incluye ingresos, transferencias, gastos sin categoría ni gastos en otras monedas; el resumen general agrupa gastos del hogar y puede diferir. Para cambiar un límite usa «Cambiar límite»; si otra operación lo cambió desde que se consultó, vuelve a consultar antes de editarlo. Los presupuestos compartidos del hogar no se muestran ni modifican.
+
 La aplicación es local y no tiene autenticación ni separación segura entre usuarios: cualquier persona con acceso al equipo puede usarla o acceder a la base. No la expongas a internet ni a redes compartidas. El servidor escucha únicamente en `127.0.0.1`. Respalda regularmente tu base de datos.
 
 Para ejecutar las pruebas:
@@ -100,6 +102,6 @@ npm test
 
 ## Próximos pasos
 
-En una siguiente etapa se pueden comparar gastos con presupuestos. Más adelante, el hogar compartido requerirá cuentas de usuario, autenticación y permisos; agregar integrantes a las tablas por sí solo no proporciona acceso seguro.
+Más adelante, el hogar compartido requerirá cuentas de usuario, autenticación y permisos; agregar integrantes a las tablas por sí solo no proporciona acceso seguro.
 
 Trabaja en ramas de funcionalidad y abre un pull request hacia `main`.
