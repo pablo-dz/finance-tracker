@@ -17,7 +17,11 @@ test("consulta solo el hogar de prueba y el mes seleccionado", async (t) => {
     async query(sql, params) {
       queries.push({ sql, params });
       if (queries.length === 1) return { rows: [{ household_id: 42 }] };
-      return { rows: [{ category: "Hogar", total: "123.50", count: 2, grand_total: "123.50" }] };
+      return { rows: [{
+        total: "123.50",
+        categories: [{ category: "Hogar", total: "123.50", count: 2, grand_total: "123.50" }],
+        expenses: [{ date: "2026-11-02", description: "Compra", category: "Hogar", amount: "123.50" }],
+      }] };
     },
   };
   const url = await startServer(t, pool);
@@ -27,6 +31,7 @@ test("consulta solo el hogar de prueba y el mes seleccionado", async (t) => {
     month: "2026-11",
     total: "123.50",
     categories: [{ category: "Hogar", total: "123.50", count: 2, grand_total: "123.50" }],
+    expenses: [{ date: "2026-11-02", description: "Compra", category: "Hogar", amount: "123.50" }],
   });
   assert.deepEqual(queries[0].params, ["[DEMO] Hogar de prueba"]);
   assert.deepEqual(queries[1].params, [42, "2026-11"]);
@@ -117,9 +122,9 @@ test("un mes sin gastos devuelve total cero", async (t) => {
   const url = await startServer(t, {
     async query() {
       call += 1;
-      return { rows: call === 1 ? [{ household_id: 42 }] : [] };
+      return { rows: call === 1 ? [{ household_id: 42 }] : [{ total: "0", categories: [], expenses: [] }] };
     },
   });
   const response = await fetch(`${url}/api/gastos?mes=2025-01`);
-  assert.deepEqual(await response.json(), { month: "2025-01", total: "0", categories: [] });
+  assert.deepEqual(await response.json(), { month: "2025-01", total: "0", categories: [], expenses: [] });
 });

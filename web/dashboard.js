@@ -6,6 +6,7 @@ const viewInput = document.querySelector("#view");
 const message = document.querySelector("#message");
 const results = document.querySelector("#results");
 const list = document.querySelector("#categories");
+const movements = document.querySelector("#movements");
 const expenseForm = document.querySelector("#expense-form");
 const formMessage = document.querySelector("#form-message");
 const saveButton = document.querySelector("#save-expense");
@@ -75,6 +76,30 @@ async function loadExpenses() {
     document.querySelector("#total").textContent = formatMoney(data.total);
     document.querySelector("#count").textContent = String(count);
     document.querySelector("#empty").hidden = data.categories.length !== 0;
+    movements.replaceChildren();
+    for (const expense of data.expenses) {
+      const item = document.createElement("li");
+      const detail = document.createElement("div");
+      const description = document.createElement("strong");
+      const metadata = document.createElement("div");
+      const date = document.createElement("time");
+      const category = document.createElement("span");
+      const amount = document.createElement("strong");
+      item.className = "movement";
+      detail.className = "movement-detail";
+      metadata.className = "movement-meta";
+      description.textContent = expense.description;
+      date.dateTime = expense.date;
+      date.textContent = expense.date.split("-").reverse().join("/");
+      category.textContent = displayName(expense.category);
+      metadata.append(date, document.createTextNode(" · "), category);
+      detail.append(description, metadata);
+      amount.textContent = formatMoney(expense.amount);
+      amount.className = "movement-amount";
+      item.append(detail, amount);
+      movements.append(item);
+    }
+    document.querySelector("#movements-empty").hidden = data.expenses.length !== 0;
     message.textContent = "";
     results.hidden = false;
   } catch (error) {
