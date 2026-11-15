@@ -12,30 +12,153 @@ function sendJson(response, status, value) {
   response.end(JSON.stringify(value));
 }
 
-export function createDashboardServer(pool) {
+async function personalMember(pool, householdId) {
+  if (!householdId) return null;
+  const result = await pool.query(
+    `SELECT h.household_id, h.name, m.member_id
+     FROM finance.household h
+     JOIN finance.member m ON m.household_id = h.household_id AND m.is_active
+     WHERE h.household_id = $1 AND h.base_currency = 'CLP' AND h.name <> $2`,
+    [householdId, "[DEMO] Hogar de prueba"],
+  );
+  return result.rows.length === 1 ? result.rows[0] : null;
+}
+
+function validDate(value) {
+  if (typeof value !== "string" || !/^(?:19\d{2}|[2-9]\d{3})-\d{2}-\d{2}$/.test(value)) return false;
+  const date = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
+}
+
+function validExpense(body) {
+  return body && typeof body === "object" && !Array.isArray(body)
+    && typeof body.merchant === "string" && body.merchant.trim().length > 0 && body.merchant.trim().length <= 100
+    && typeof body.amount === "string" && /^[1-9]\d{0,11}$/.test(body.amount)
+    && validDate(body.date)
+    && Number.isSafeInteger(body.accountId) && body.accountId > 0 && body.accountId <= 2147483647
+    && Number.isSafeInteger(body.categoryId) && body.categoryId > 0 && body.categoryId <= 2147483647;
+}
+
+export function createDashboardServer(pool, { householdId = null } = {}) {
   return createServer(async (request, response) => {
     try {
+      const url = new URL(request.url, "http://localhost");
+      if (url.pathname === "/api/gastos" && request.method === "POST") {
+        const origin = `http://127.0.0.1:${request.socket.localPort}`;
+        if (request.headers.host !== `127.0.0.1:${request.socket.localPort}` || request.headers.origin !== origin
+          || request.headers["content-type"] !== "application/json") {
+          sendJson(response, 403, { error: "Solicitud no permitida." });
+          return;
+        }
+        const length = request.headers["content-length"];
+        if (!length || !/^\d+$/.test(length) || Number(length) > 8192) {
+          sendJson(response, 413, { error: "El contenido de la solicitud es demasiado grande o inválido." });
+          return;
+        }
+        const chunks = [];
+        let received = 0;
+        for await (const chunk of request) {
+          received += chunk.length;
+          if (received > 8192) {
+            sendJson(response, 413, { error: "El contenido de la solicitud es demasiado grande." });
+            return;
+          }
+          chunks.push(chunk);
+        }
+        let expense;
+        try {
+          expense = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+        } catch (error) {
+          if (!(error instanceof SyntaxError)) throw error;
+          sendJson(response, 400, { error: "El contenido de la solicitud no es válido." });
+          return;
+        }
+        if (!validExpense(expense)) {
+          sendJson(response, 400, { error: "Revisa la descripción, el monto entero en CLP, la fecha, la categoría y la cuenta." });
+          return;
+        }
+        const member = await personalMember(pool, householdId);
+        if (!member) {
+          sendJson(response, 409, { error: "Configura un hogar personal en CLP con un único integrante activo." });
+          return;
+        }
+        const result = await pool.query(
+          `INSERT INTO finance.transactions
+             (household_id, member_id, account_id, category_id, tx_date, amount, type, merchant)
+           SELECT h.household_id, m.member_id, a.account_id, c.category_id, $5::date, $6::numeric, 'expense', $7
+           FROM finance.household h
+           JOIN finance.member m ON m.household_id = h.household_id AND m.member_id = $2 AND m.is_active
+           JOIN finance.account a ON a.household_id = h.household_id AND a.account_id = $3
+             AND a.is_active AND a.currency = 'CLP' AND (a.member_id IS NULL OR a.member_id = m.member_id)
+           JOIN finance.category c ON c.household_id = h.household_id AND c.category_id = $4 AND c.kind = 'expense'
+           WHERE h.household_id = $1 AND h.base_currency = 'CLP' AND h.name <> '[DEMO] Hogar de prueba'
+             AND (SELECT count(*) FROM finance.member WHERE household_id = h.household_id AND is_active) = 1
+           RETURNING transaction_id::text`,
+          [member.household_id, member.member_id, expense.accountId, expense.categoryId, expense.date, expense.amount, expense.merchant.trim()],
+        );
+        if (result.rows.length !== 1) {
+          sendJson(response, 400, { error: "La cuenta o categoría no corresponde al hogar personal, o ya no está disponible." });
+          return;
+        }
+        sendJson(response, 201, { message: "Gasto registrado correctamente." });
+        return;
+      }
+
       if (request.method !== "GET") {
-        response.writeHead(405, { Allow: "GET" });
+        response.writeHead(405, { Allow: url.pathname === "/api/gastos" ? "GET, POST" : "GET" });
         response.end();
         return;
       }
 
-      const url = new URL(request.url, "http://localhost");
+      if (url.pathname === "/api/opciones") {
+        const member = await personalMember(pool, householdId);
+        if (!member) {
+          sendJson(response, 409, { error: "Configura FINANCE_HOUSEHOLD_ID con un hogar personal en CLP que tenga un único integrante activo." });
+          return;
+        }
+        const accounts = await pool.query(
+          `SELECT account_id AS id, name FROM finance.account
+           WHERE household_id = $1 AND is_active AND currency = 'CLP' AND (member_id IS NULL OR member_id = $2)
+           ORDER BY name, account_id`,
+          [member.household_id, member.member_id],
+        );
+        const categories = await pool.query(
+          "SELECT category_id AS id, name FROM finance.category WHERE household_id = $1 AND kind = 'expense' ORDER BY name, category_id",
+          [member.household_id],
+        );
+        sendJson(response, 200, { household: member.name, accounts: accounts.rows, categories: categories.rows });
+        return;
+      }
+
       if (url.pathname === "/api/gastos") {
         const month = url.searchParams.get("mes");
         if (!month || !/^(?:19\d{2}|[2-9]\d{3})-(?:0[1-9]|1[0-2])$/.test(month) || url.searchParams.getAll("mes").length !== 1) {
           sendJson(response, 400, { error: "Selecciona un mes válido." });
           return;
         }
-
-        const households = await pool.query(
-          "SELECT household_id FROM finance.household WHERE name = $1",
-          ["[DEMO] Hogar de prueba"],
-        );
-        if (households.rows.length !== 1) {
-          sendJson(response, 409, { error: "Debe existir exactamente un hogar de prueba. Revisa la carga de datos ficticios." });
+        const mode = url.searchParams.get("vista") ?? "demo";
+        if (!["demo", "personal"].includes(mode) || url.searchParams.getAll("vista").length > 1) {
+          sendJson(response, 400, { error: "Selecciona una vista válida." });
           return;
+        }
+        let selectedHousehold;
+        if (mode === "personal") {
+          const member = await personalMember(pool, householdId);
+          if (!member) {
+            sendJson(response, 409, { error: "Configura un hogar personal en CLP con un único integrante activo." });
+            return;
+          }
+          selectedHousehold = member.household_id;
+        } else {
+          const households = await pool.query(
+            "SELECT household_id FROM finance.household WHERE name = $1",
+            ["[DEMO] Hogar de prueba"],
+          );
+          if (households.rows.length !== 1) {
+            sendJson(response, 409, { error: "Debe existir exactamente un hogar de prueba. Revisa la carga de datos ficticios." });
+            return;
+          }
+          selectedHousehold = households.rows[0].household_id;
         }
 
         const result = await pool.query(
@@ -50,7 +173,7 @@ export function createDashboardServer(pool) {
              AND t.tx_date < (($2 || '-01')::date + interval '1 month')
            GROUP BY c.category_id, c.name
            ORDER BY SUM(t.amount) DESC, c.name`,
-          [households.rows[0].household_id, month],
+          [selectedHousehold, month],
         );
         sendJson(response, 200, { month, total: result.rows[0]?.grand_total ?? "0", categories: result.rows });
         return;
@@ -67,7 +190,7 @@ export function createDashboardServer(pool) {
       response.end(contents);
     } catch (error) {
       console.error("Error al atender la solicitud:", error);
-      if (!response.headersSent) sendJson(response, 500, { error: "No se pudieron cargar los datos. Revisa la conexión y el servidor." });
+      if (!response.headersSent) sendJson(response, 500, { error: "No se pudo completar la solicitud. Revisa la conexión y el servidor." });
       else response.destroy();
     }
   });

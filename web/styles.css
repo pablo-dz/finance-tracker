@@ -10,11 +10,17 @@ main { max-width: 1000px; margin: auto; padding: 45px 20px; }
 h1 { margin: 8px 0; font-size: clamp(28px, 5vw, 38px); }
 .intro p:not(.eyebrow) { color: #64766a; }
 label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 7px; }
-form div { display: flex; gap: 8px; }
-input, button { font: inherit; border-radius: 7px; padding: 10px; }
-input { border: 1px solid #cddbd0; background: white; min-width: 0; }
+.filters { display: flex; gap: 8px; align-items: end; }
+.filters label { margin: 0; }
+.filters input, .filters select { display: block; margin-top: 7px; }
+input, select, button { font: inherit; border-radius: 7px; padding: 10px; }
+input, select { border: 1px solid #cddbd0; background: white; min-width: 0; }
 button { background: #1f6041; color: white; border: 1px solid #1f6041; cursor: pointer; }
 button:hover { background: #164a31; }
+button:disabled { opacity: .6; cursor: not-allowed; }
+.form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.form-grid label { margin: 0; }
+.form-grid input, .form-grid select { display: block; width: 100%; margin-top: 7px; }
 :focus-visible { outline: 3px solid #84b98c; outline-offset: 2px; }
 .notice { background: #edf5e9; border-radius: 8px; padding: 14px; color: #47664e; font-size: 13px; margin: 30px 0 20px; }
 #message { color: #804a35; }
@@ -33,4 +39,6 @@ li { border-top: 1px solid #edf1ed; padding: 15px 0; display: flex; justify-cont
 @media (max-width: 600px) {
   .intro { flex-direction: column; align-items: stretch; }
   .cards { grid-template-columns: 1fr; }
+  .filters { flex-wrap: wrap; }
+  .form-grid { grid-template-columns: 1fr; }
 }

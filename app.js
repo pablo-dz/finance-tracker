@@ -8,10 +8,18 @@ if (!process.env.DATABASE_URL && !process.env.PGDATABASE) {
 const pool = new pg.Pool(
   process.env.DATABASE_URL ? { connectionString: process.env.DATABASE_URL } : undefined,
 );
-const server = createDashboardServer(pool);
+const householdId = process.env.FINANCE_HOUSEHOLD_ID;
+if (householdId && (!/^[1-9]\d*$/.test(householdId) || Number(householdId) > 2147483647)) {
+  throw new Error("FINANCE_HOUSEHOLD_ID debe ser un ID de hogar válido.");
+}
+const port = process.env.PORT ?? "3000";
+if (!/^[1-9]\d*$/.test(port) || Number(port) > 65535) {
+  throw new Error("PORT debe ser un puerto entre 1 y 65535.");
+}
+const server = createDashboardServer(pool, { householdId: householdId ? Number(householdId) : null });
 
-server.listen(3000, "127.0.0.1", () => {
-  console.log("Dashboard disponible en http://127.0.0.1:3000");
+server.listen(Number(port), "127.0.0.1", () => {
+  console.log(`Dashboard disponible en http://127.0.0.1:${port}`);
 });
 
 for (const signal of ["SIGINT", "SIGTERM"]) {
