@@ -243,6 +243,59 @@ test("consulta presupuestos y gastos personales del mes sin convertir importes",
   assert.deepEqual(queries[1].params, [7, 3, "2026-11"]);
 });
 
+test("consulta reporte personal del período con meses vacíos y gastos por categoría", async (t) => {
+  const queries = [];
+  const url = await startServer(t, {
+    async query(sql, params) {
+      queries.push({ sql, params });
+      return queries.length === 1
+        ? { rows: [{ household_id: 7, member_id: 3 }] }
+        : { rows: [{
+          monthly: [
+            { month: "2026-06", total: "0", count: 0 },
+            { month: "2026-07", total: "120.50", count: 2 },
+          ],
+          categories: [{ category: "Supermercado", total: "120.50", count: 2 }],
+          total: "120.50",
+          average: "60.25",
+        }] };
+    },
+  }, { householdId: 7 });
+  const response = await fetch(`${url}/api/reportes?mes=2026-07&meses=3`);
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), {
+    month: "2026-07",
+    months: 3,
+    monthly: [
+      { month: "2026-06", total: "0", count: 0 },
+      { month: "2026-07", total: "120.50", count: 2 },
+    ],
+    categories: [{ category: "Supermercado", total: "120.50", count: 2 }],
+    total: "120.50",
+    average: "60.25",
+  });
+  assert.deepEqual(queries[1].params, [7, 3, "2026-07", "3"]);
+  assert.match(queries[1].sql, /generate_series/);
+  assert.match(queries[1].sql, /t\.member_id = \$2/);
+  assert.match(queries[1].sql, /a\.currency = 'CLP'/);
+});
+
+test("rechaza períodos inválidos y hogares personales no configurados en reportes", async (t) => {
+  const url = await startServer(t, { query() { throw new Error("No debe consultar la base"); } }, { householdId: 7 });
+  for (const query of [
+    "mes=2026-13&meses=6",
+    "mes=2026-11&meses=4",
+    "mes=2026-11&meses=3&meses=6",
+    "mes=2026-11&mes=2026-10&meses=6",
+  ]) {
+    assert.equal((await fetch(`${url}/api/reportes?${query}`)).status, 400);
+  }
+
+  const noMemberUrl = await startServer(t, { async query() { return { rows: [] }; } }, { householdId: 7 });
+  const response = await fetch(`${noMemberUrl}/api/reportes?mes=2026-11&meses=6`);
+  assert.equal(response.status, 409);
+});
+
 test("crea un límite cero y actualiza con el monto previamente consultado", async (t) => {
   const queries = [];
   const url = await startServer(t, {

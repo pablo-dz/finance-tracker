@@ -66,6 +66,27 @@
         <p id="empty" hidden>No hay gastos para este mes.</p>
         <ul id="categories" aria-label="Distribución de gastos por categoría"></ul>
       </section>
+      <section class="panel" id="report-panel" hidden>
+        <p class="eyebrow">HISTORIAL PERSONAL</p>
+        <h2>Evolución de tus gastos</h2>
+        <p class="chart-description">Gastos personales en CLP. El mes final es el seleccionado arriba; los meses sin gastos aparecen con total cero y cuentan en el promedio.</p>
+        <label for="report-period">Período</label>
+        <select id="report-period">
+          <option value="3">Últimos 3 meses</option>
+          <option value="6" selected>Últimos 6 meses</option>
+          <option value="12">Últimos 12 meses</option>
+        </select>
+        <p id="report-status" role="status" aria-live="polite"></p>
+        <div class="report-totals">
+          <p>Total del período <strong id="report-total"></strong></p>
+          <p>Promedio mensual <strong id="report-average"></strong></p>
+        </div>
+        <h3>Gasto por mes</h3>
+        <p id="report-empty" hidden>No hay gastos registrados en este período.</p>
+        <ul id="report-monthly" aria-label="Gastos por mes"></ul>
+        <h3>Gasto por categoría</h3>
+        <ul id="report-categories" aria-label="Gastos por categoría en el período"></ul>
+      </section>
       <section class="panel" id="budget-panel" hidden>
         <p class="eyebrow">PLANIFICACIÓN PERSONAL</p>
         <h2>Presupuestos por categoría</h2>
