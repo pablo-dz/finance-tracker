@@ -1,12 +1,10 @@
 import pg from "pg";
 import { createDashboardServer } from "./server.js";
 
-if (!process.env.DATABASE_URL && !process.env.PGDATABASE) {
-  throw new Error("Configura DATABASE_URL o PGDATABASE antes de iniciar la aplicación.");
-}
-
 const pool = new pg.Pool(
-  process.env.DATABASE_URL ? { connectionString: process.env.DATABASE_URL } : undefined,
+  process.env.DATABASE_URL
+    ? { connectionString: process.env.DATABASE_URL }
+    : { database: process.env.PGDATABASE ?? "finance_tracker" },
 );
 const port = process.env.PORT ?? "3000";
 if (!/^[1-9]\d*$/.test(port) || Number(port) > 65535) {

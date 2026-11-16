@@ -79,14 +79,14 @@ Necesitas Node.js 22 o superior y npm. Con PostgreSQL iniciado y las migraciones
 
 ```bash
 npm install
-PGDATABASE=finance_tracker npm start
+npm start
 ```
 
-Reemplaza `finance_tracker` por el nombre de tu base. Al abrir la página, crea una cuenta con tu correo y contraseña. La aplicación crea un perfil personal nuevo, una cuenta principal y categorías iniciales asociados a esa cuenta. Los perfiles y movimientos que ya existían antes de aplicar la migración 007 quedan sin asociar y no se muestran; no se copian ni se eliminan.
+Por defecto, la aplicación se conecta a la base local `finance_tracker`. Para usar otra base, configura `PGDATABASE` antes de iniciar. Al abrir la página, crea una cuenta con tu correo y contraseña. La aplicación crea un perfil personal nuevo, una cuenta principal y categorías iniciales asociados a esa cuenta. Los perfiles y movimientos que ya existían antes de aplicar la migración 007 quedan sin asociar y no se muestran; no se copian ni se eliminan.
 
 También puedes configurar la conexión con `DATABASE_URL`, o con las variables de PostgreSQL `PGHOST`, `PGPORT`, `PGUSER` y `PGPASSWORD`. No guardes contraseñas en archivos versionados.
 
-Abre [http://127.0.0.1:3000](http://127.0.0.1:3000). Si el puerto 3000 está ocupado, puedes indicar otro, por ejemplo `PORT=3001 PGDATABASE=finance_tracker npm start`, y abrir `http://127.0.0.1:3001`. Inicia sesión para consultar tus finanzas personales: gastos, ingresos, transferencias, saldos, presupuestos, metas y categorías. La edición de gastos solo admite pesos enteros. Las eliminaciones son permanentes; para corregir un ingreso o transferencia, elimínalo y vuelve a registrarlo. Las transferencias mueven saldo entre cuentas y no cuentan como ingreso ni gasto. En «Cuentas» puedes configurar el saldo inicial; se considera anterior a todos los movimientos guardados. Para detener el servidor, presiona `Ctrl+C`.
+Abre [http://127.0.0.1:3000](http://127.0.0.1:3000). Si el puerto 3000 está ocupado, puedes indicar otro con `PORT=3001 npm start` y abrir `http://127.0.0.1:3001`. Inicia sesión para consultar tus finanzas personales: gastos, ingresos, transferencias, saldos, presupuestos, metas y categorías. La edición de gastos solo admite pesos enteros. Las eliminaciones son permanentes; para corregir un ingreso o transferencia, elimínalo y vuelve a registrarlo. Las transferencias mueven saldo entre cuentas y no cuentan como ingreso ni gasto. En «Cuentas» puedes configurar el saldo inicial; se considera anterior a todos los movimientos guardados. Para detener el servidor, presiona `Ctrl+C`.
 
 El reporte «Evolución de tus gastos» compara los últimos 3, 6 o 12 meses hasta el mes seleccionado. Muestra el total y promedio mensual, la evolución por mes y el gasto acumulado por categoría. Los meses sin movimientos aparecen con total cero. El reporte incluye únicamente gastos personales de cuentas en CLP.
 
