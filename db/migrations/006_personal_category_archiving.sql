@@ -1,0 +1,6 @@
+BEGIN;
+
+ALTER TABLE finance.category
+  ADD COLUMN is_active BOOLEAN NOT NULL DEFAULT TRUE;
+
+COMMIT;

@@ -20,9 +20,6 @@
       </div>
       <form id="month-form">
         <div class="filters">
-          <label for="view">Vista
-            <select id="view"><option value="personal">Hogar personal</option><option value="demo" selected>Datos de prueba</option></select>
-          </label>
           <label for="month">Mes
             <input id="month" type="month" min="1900-01" max="9999-12" required>
           </label>
@@ -30,7 +27,7 @@
         </div>
       </form>
     </div>
-    <p class="notice" id="notice"></p>
+    <p class="notice">Esta página muestra solo tus finanzas personales. La aplicación es local y no tiene autenticación.</p>
     <p id="message" role="status" aria-live="polite"></p>
     <p id="movement-status" role="status" aria-live="polite"></p>
     <section id="results" hidden aria-label="Resumen de gastos">
@@ -70,6 +67,20 @@
           </div>
         </form>
       </section>
+      <section class="panel" id="category-panel" hidden>
+        <p class="eyebrow">PERSONALIZA TU REGISTRO</p>
+        <h2>Mis categorías</h2>
+        <p class="chart-description">Renombrar también cambia el nombre mostrado en gastos anteriores. Archivar conserva los gastos y presupuestos; puedes restaurar la categoría cuando quieras.</p>
+        <p id="category-status" role="status" aria-live="polite"></p>
+        <ul id="managed-categories" aria-label="Administrar categorías personales"></ul>
+        <form id="category-form">
+          <h3>Crear categoría</h3>
+          <label for="new-category-name">Nombre
+            <input id="new-category-name" name="name" maxlength="100" required placeholder="Ej. Mascotas">
+          </label>
+          <button id="create-category" type="submit">Crear categoría</button>
+        </form>
+      </section>
       <section class="panel">
         <p class="eyebrow">DETALLE DEL MES</p>
         <h2>Movimientos</h2>
@@ -78,9 +89,9 @@
       </section>
     </section>
     <section class="panel" id="registration">
-      <p class="eyebrow">HOGAR PERSONAL</p>
+      <p class="eyebrow">REGISTRO PERSONAL</p>
       <h2 id="form-title">Registrar gasto</h2>
-      <p>El gasto se guardará en tu hogar personal, no en los datos de prueba.</p>
+      <p>Registra un gasto en tus finanzas personales.</p>
       <form id="expense-form">
         <div class="form-grid">
           <label>Descripción

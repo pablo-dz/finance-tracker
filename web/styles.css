@@ -62,10 +62,18 @@ li { border-top: 1px solid #edf1ed; padding: 15px 0; }
 .budget-item p { color: #64766a; font-size: 13px; margin: 6px 0 0; }
 .budget-item .budget-exceeded { color: #a53d3d; font-weight: 600; }
 #budget-form { border-top: 1px solid #edf1ed; padding-top: 10px; }
+.managed-category { display: grid; grid-template-columns: 82px minmax(0, 1fr) auto; gap: 10px; align-items: center; }
+.category-state { color: #368b5f; font-size: 12px; font-weight: 600; }
+.category-state.archived { color: #718377; }
+.category-edit-form { display: flex; gap: 8px; min-width: 0; }
+.category-edit-form input { width: 100%; }
+#category-form { border-top: 1px solid #edf1ed; margin-top: 10px; padding-top: 10px; }
+#category-form input { display: block; width: 100%; margin: 7px 0 12px; }
 @media (max-width: 600px) {
   .intro { flex-direction: column; align-items: stretch; }
   .cards { grid-template-columns: 1fr; }
   .filters { flex-wrap: wrap; }
   .form-grid { grid-template-columns: 1fr; }
+  .managed-category { grid-template-columns: 1fr; }
   .movement-actions { flex-direction: column; align-items: end; gap: 7px; }
 }
