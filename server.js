@@ -72,6 +72,21 @@ function validOpeningBalance(body) {
     && typeof body.expectedAmount === "string" && /^-?(?:0|[1-9]\d{0,11})(?:\.\d{1,2})?$/.test(body.expectedAmount);
 }
 
+function validSavingsGoal(body) {
+  return body && typeof body === "object" && !Array.isArray(body)
+    && typeof body.name === "string" && body.name.trim().length > 0 && body.name.trim().length <= 100
+    && typeof body.targetAmount === "string" && /^[1-9]\d{0,11}$/.test(body.targetAmount)
+    && (body.dueDate === null || body.dueDate === undefined || validDate(body.dueDate));
+}
+
+function validSavingsContribution(body) {
+  return body && typeof body === "object" && !Array.isArray(body)
+    && Number.isSafeInteger(body.goalId) && body.goalId > 0 && body.goalId <= 2147483647
+    && typeof body.amount === "string" && /^[1-9]\d{0,11}$/.test(body.amount)
+    && validDate(body.date)
+    && (body.note === undefined || (typeof body.note === "string" && body.note.trim().length <= 100));
+}
+
 function validTransactionId(value) {
   return typeof value === "string" && /^[1-9]\d{0,18}$/.test(value)
     && BigInt(value) <= 9223372036854775807n;
@@ -88,7 +103,11 @@ export function createDashboardServer(pool, { householdId = null } = {}) {
       const transferWrite = url.pathname === "/api/transferencias" && request.method === "POST";
       const transferDelete = url.pathname === "/api/transferencias" && request.method === "DELETE";
       const openingBalanceWrite = url.pathname === "/api/cuentas/saldo-inicial" && request.method === "PUT";
-      if (expenseWrite || budgetWrite || incomeWrite || incomeDelete || transferWrite || transferDelete || openingBalanceWrite) {
+      const savingsGoalWrite = url.pathname === "/api/metas" && request.method === "POST";
+      const contributionWrite = url.pathname === "/api/metas/aportes" && request.method === "POST";
+      const contributionDelete = url.pathname === "/api/metas/aportes" && request.method === "DELETE";
+      if (expenseWrite || budgetWrite || incomeWrite || incomeDelete || transferWrite || transferDelete
+        || openingBalanceWrite || savingsGoalWrite || contributionWrite || contributionDelete) {
         const origin = `http://127.0.0.1:${request.socket.localPort}`;
         if (request.headers.host !== `127.0.0.1:${request.socket.localPort}` || request.headers.origin !== origin
           || request.headers["content-type"] !== "application/json") {
@@ -148,6 +167,19 @@ export function createDashboardServer(pool, { householdId = null } = {}) {
         }
         if (openingBalanceWrite && !validOpeningBalance(expense)) {
           sendJson(response, 400, { error: "Ingresa un saldo inicial válido para la cuenta." });
+          return;
+        }
+        if (savingsGoalWrite && !validSavingsGoal(expense)) {
+          sendJson(response, 400, { error: "Ingresa un nombre, un objetivo positivo en pesos enteros y una fecha válida." });
+          return;
+        }
+        if (contributionWrite && !validSavingsContribution(expense)) {
+          sendJson(response, 400, { error: "Revisa la meta, el aporte positivo en pesos enteros, la fecha y la descripción." });
+          return;
+        }
+        if (contributionDelete && (!expense || typeof expense !== "object"
+          || Array.isArray(expense) || !validTransactionId(expense.id))) {
+          sendJson(response, 400, { error: "El identificador del aporte no es válido." });
           return;
         }
         const member = await personalMember(pool, householdId);
@@ -252,6 +284,63 @@ export function createDashboardServer(pool, { householdId = null } = {}) {
           sendJson(response, 201, { message: "Transferencia registrada correctamente." });
           return;
         }
+        if (savingsGoalWrite) {
+          const result = await pool.query(
+            `INSERT INTO finance.savings_goal (household_id, name, target_amount, due_date)
+             SELECT h.household_id, $2, $3::numeric, $4::date
+             FROM finance.household h
+             JOIN finance.member m ON m.household_id = h.household_id AND m.member_id = $5 AND m.is_active
+             WHERE h.household_id = $1 AND h.base_currency = 'CLP' AND h.name <> '[DEMO] Hogar de prueba'
+               AND (SELECT count(*) FROM finance.member WHERE household_id = h.household_id AND is_active) = 1
+             RETURNING goal_id`,
+            [member.household_id, expense.name.trim(), expense.targetAmount, expense.dueDate ?? null, member.member_id],
+          );
+          if (result.rows.length !== 1) {
+            sendJson(response, 409, { error: "No se pudo crear la meta en el hogar personal. Vuelve a consultar." });
+            return;
+          }
+          sendJson(response, 201, { message: "Meta de ahorro creada correctamente." });
+          return;
+        }
+        if (contributionWrite) {
+          const result = await pool.query(
+            `INSERT INTO finance.savings_contribution
+               (household_id, member_id, goal_id, contributed_on, amount, note)
+             SELECT h.household_id, m.member_id, g.goal_id, $4::date, $5::numeric, NULLIF(BTRIM($6), '')
+             FROM finance.household h
+             JOIN finance.member m ON m.household_id = h.household_id AND m.member_id = $2 AND m.is_active
+             JOIN finance.savings_goal g ON g.household_id = h.household_id AND g.goal_id = $3
+             WHERE h.household_id = $1 AND h.base_currency = 'CLP' AND h.name <> '[DEMO] Hogar de prueba'
+               AND (SELECT count(*) FROM finance.member WHERE household_id = h.household_id AND is_active) = 1
+             RETURNING contribution_id::text`,
+            [member.household_id, member.member_id, expense.goalId, expense.date, expense.amount, expense.note?.trim() ?? ""],
+          );
+          if (result.rows.length !== 1) {
+            sendJson(response, 404, { error: "La meta no existe o no pertenece al hogar personal." });
+            return;
+          }
+          sendJson(response, 201, { message: "Aporte registrado correctamente." });
+          return;
+        }
+        if (contributionDelete) {
+          const result = await pool.query(
+            `DELETE FROM finance.savings_contribution sc
+             USING finance.household h, finance.member m
+             WHERE h.household_id = $1 AND h.base_currency = 'CLP' AND h.name <> '[DEMO] Hogar de prueba'
+               AND m.household_id = h.household_id AND m.member_id = $2 AND m.is_active
+               AND sc.contribution_id = $3::bigint AND sc.household_id = h.household_id
+               AND sc.member_id = m.member_id
+               AND (SELECT count(*) FROM finance.member WHERE household_id = h.household_id AND is_active) = 1
+             RETURNING sc.contribution_id::text`,
+            [member.household_id, member.member_id, expense.id],
+          );
+          if (result.rows.length !== 1) {
+            sendJson(response, 404, { error: "El aporte no existe o ya no está disponible." });
+            return;
+          }
+          sendJson(response, 200, { message: "Aporte eliminado correctamente." });
+          return;
+        }
         if (budgetWrite) {
           const parameters = [member.household_id, member.member_id, expense.categoryId, expense.month, expense.amount];
           const result = request.method === "POST" ? await pool.query(
@@ -351,7 +440,9 @@ export function createDashboardServer(pool, { householdId = null } = {}) {
         const allow = url.pathname === "/api/gastos" ? "GET, POST, PUT, DELETE"
           : url.pathname === "/api/presupuestos" ? "GET, POST, PUT"
             : url.pathname === "/api/ingresos" || url.pathname === "/api/transferencias" ? "GET, POST, DELETE"
-              : url.pathname === "/api/cuentas/saldo-inicial" ? "GET, PUT" : "GET";
+              : url.pathname === "/api/cuentas/saldo-inicial" ? "GET, PUT"
+                : url.pathname === "/api/metas" ? "GET, POST"
+                  : url.pathname === "/api/metas/aportes" ? "POST, DELETE" : "GET";
         response.writeHead(405, { Allow: allow });
         response.end();
         return;
@@ -445,6 +536,35 @@ export function createDashboardServer(pool, { householdId = null } = {}) {
           [member.household_id, member.member_id, month],
         );
         sendJson(response, 200, { month, ...result.rows[0] });
+        return;
+      }
+
+      if (url.pathname === "/api/metas") {
+        const member = await personalMember(pool, householdId);
+        if (!member) {
+          sendJson(response, 409, { error: "Configura un hogar personal en CLP con un único integrante activo." });
+          return;
+        }
+        const result = await pool.query(
+          `SELECT g.goal_id AS id, g.name, g.target_amount::text AS "targetAmount",
+                  g.due_date::text AS "dueDate", COALESCE(SUM(sc.amount), 0)::text AS saved,
+                  COALESCE(json_agg(json_build_object(
+                    'id', sc.contribution_id::text,
+                    'date', to_char(sc.contributed_on, 'YYYY-MM-DD'),
+                    'amount', sc.amount::text,
+                    'note', sc.note,
+                    'editable', sc.member_id = $2
+                  ) ORDER BY sc.contributed_on DESC, sc.contribution_id DESC)
+                    FILTER (WHERE sc.contribution_id IS NOT NULL), '[]'::json) AS contributions
+           FROM finance.savings_goal g
+           LEFT JOIN finance.savings_contribution sc
+             ON sc.household_id = g.household_id AND sc.goal_id = g.goal_id
+           WHERE g.household_id = $1
+           GROUP BY g.goal_id, g.name, g.target_amount, g.due_date
+           ORDER BY g.due_date NULLS LAST, g.name, g.goal_id`,
+          [member.household_id, member.member_id],
+        );
+        sendJson(response, 200, { goals: result.rows });
         return;
       }
 

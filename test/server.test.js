@@ -421,7 +421,7 @@ test("devuelve saldos de cuenta calculados con saldo inicial y transferencias", 
   assert.match(queries[1].sql, /t\.tx_date <= CURRENT_DATE/);
 });
 
-test("elimina ingresos y transferencias solo del integrante del hogar", async (t) => {
+test("elimina ingresos y transferencias solo del integrante personal", async (t) => {
   const queries = [];
   const url = await startServer(t, {
     async query(sql, params) {
@@ -444,4 +444,119 @@ test("elimina ingresos y transferencias solo del integrante del hogar", async (t
     assert.deepEqual(queries[index].params, [7, 3, "15"]);
     assert.match(queries[index].sql, sql);
   }
+});
+
+test("consulta metas, progreso y aportes solo del perfil personal", async (t) => {
+  const queries = [];
+  const goals = [{
+    id: 8,
+    name: "Viaje",
+    targetAmount: "500000.00",
+    dueDate: "2027-01-01",
+    saved: "125000.00",
+    contributions: [{ id: "19", date: "2026-11-15", amount: "125000.00", note: "Primer aporte", editable: true }],
+  }];
+  const url = await startServer(t, {
+    async query(sql, params) {
+      queries.push({ sql, params });
+      return queries.length === 1
+        ? { rows: [{ household_id: 7, member_id: 3 }] }
+        : { rows: goals };
+    },
+  }, { householdId: 7 });
+  const response = await fetch(`${url}/api/metas`);
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { goals });
+  assert.deepEqual(queries[1].params, [7, 3]);
+  assert.match(queries[1].sql, /SUM\(sc\.amount\)/);
+  assert.match(queries[1].sql, /sc\.household_id = g\.household_id/);
+});
+
+test("crea una meta con fecha opcional y valida sus datos", async (t) => {
+  const queries = [];
+  const url = await startServer(t, {
+    async query(sql, params) {
+      queries.push({ sql, params });
+      return queries.length === 1
+        ? { rows: [{ household_id: 7, member_id: 3 }] }
+        : { rows: [{ goal_id: 8 }] };
+    },
+  }, { householdId: 7 });
+  const response = await fetch(`${url}/api/metas`, {
+    method: "POST",
+    headers: { Origin: url, "Content-Type": "application/json" },
+    body: JSON.stringify({ name: "  Viaje  ", targetAmount: "500000", dueDate: null }),
+  });
+  assert.equal(response.status, 201);
+  assert.deepEqual(queries[1].params, [7, "Viaje", "500000", null, 3]);
+
+  const invalidUrl = await startServer(t, { query() { throw new Error("No debe consultar la base"); } }, { householdId: 7 });
+  for (const body of [
+    { name: " ", targetAmount: "1000", dueDate: null },
+    { name: "Meta", targetAmount: "0", dueDate: null },
+    { name: "Meta", targetAmount: "1.5", dueDate: null },
+    { name: "Meta", targetAmount: "1000", dueDate: "2026-02-30" },
+  ]) {
+    const invalid = await fetch(`${invalidUrl}/api/metas`, {
+      method: "POST",
+      headers: { Origin: invalidUrl, "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    assert.equal(invalid.status, 400);
+  }
+});
+
+test("registra aportes únicamente en metas del perfil personal", async (t) => {
+  const queries = [];
+  const url = await startServer(t, {
+    async query(sql, params) {
+      queries.push({ sql, params });
+      return queries.length === 1
+        ? { rows: [{ household_id: 7, member_id: 3 }] }
+        : { rows: [{ contribution_id: "19" }] };
+    },
+  }, { householdId: 7 });
+  const response = await fetch(`${url}/api/metas/aportes`, {
+    method: "POST",
+    headers: { Origin: url, "Content-Type": "application/json" },
+    body: JSON.stringify({ goalId: 8, amount: "25000", date: "2026-11-15", note: " Aporte mensual " }),
+  });
+  assert.equal(response.status, 201);
+  assert.deepEqual(queries[1].params, [7, 3, 8, "2026-11-15", "25000", "Aporte mensual"]);
+  assert.match(queries[1].sql, /g\.household_id = h\.household_id/);
+
+  const invalidUrl = await startServer(t, { query() { throw new Error("No debe consultar la base"); } }, { householdId: 7 });
+  for (const body of [
+    { goalId: 0, amount: "1000", date: "2026-11-15" },
+    { goalId: 8, amount: "0", date: "2026-11-15" },
+    { goalId: 8, amount: "1.5", date: "2026-11-15" },
+    { goalId: 8, amount: "1000", date: "2026-02-30" },
+  ]) {
+    const invalid = await fetch(`${invalidUrl}/api/metas/aportes`, {
+      method: "POST",
+      headers: { Origin: invalidUrl, "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    assert.equal(invalid.status, 400);
+  }
+});
+
+test("elimina únicamente aportes creados por la persona personal", async (t) => {
+  const queries = [];
+  const url = await startServer(t, {
+    async query(sql, params) {
+      queries.push({ sql, params });
+      return queries.length === 1
+        ? { rows: [{ household_id: 7, member_id: 3 }] }
+        : { rows: [{ contribution_id: "19" }] };
+    },
+  }, { householdId: 7 });
+  const response = await fetch(`${url}/api/metas/aportes`, {
+    method: "DELETE",
+    headers: { Origin: url, "Content-Type": "application/json" },
+    body: JSON.stringify({ id: "19" }),
+  });
+  assert.equal(response.status, 200);
+  assert.deepEqual(queries[1].params, [7, 3, "19"]);
+  assert.match(queries[1].sql, /sc\.member_id = m\.member_id/);
 });
