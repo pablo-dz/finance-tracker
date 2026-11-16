@@ -1,5 +1,14 @@
 import { expenseShare } from "./chart.js";
 
+const authPanel = document.querySelector("#auth-panel");
+const authStatus = document.querySelector("#auth-status");
+const appContent = document.querySelector("#app-content");
+const userEmail = document.querySelector("#user-email");
+const logoutButton = document.querySelector("#logout-button");
+const loginForm = document.querySelector("#login-form");
+const loginButton = document.querySelector("#login-button");
+const registerForm = document.querySelector("#register-form");
+const registerButton = document.querySelector("#register-button");
 const form = document.querySelector("#month-form");
 const monthInput = document.querySelector("#month");
 const message = document.querySelector("#message");
@@ -94,6 +103,54 @@ function formatMoney(value) {
   const decimals = fraction.replace(/0+$/, "");
   const formattedWhole = formatter.format(BigInt(whole));
   return `${whole.startsWith("-") ? "-" : ""}$${formattedWhole.replace("-", "")}${decimals ? `,${decimals}` : ""}`;
+}
+
+async function showApplication(user) {
+  authPanel.hidden = true;
+  appContent.hidden = false;
+  userEmail.textContent = user.email;
+  userEmail.hidden = false;
+  logoutButton.hidden = false;
+  await Promise.all([loadExpenses(), loadOptions()]);
+}
+
+async function initializeAuthentication() {
+  try {
+    const response = await fetch("/api/auth/session");
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "No fue posible consultar la sesión.");
+    if (data.user) await showApplication(data.user);
+  } catch (error) {
+    authStatus.textContent = error instanceof Error ? error.message : "No fue posible consultar la sesión.";
+  }
+}
+
+async function submitAuthentication(event, formElement, button, path) {
+  event.preventDefault();
+  const values = new FormData(formElement);
+  if (path === "/api/auth/register" && values.get("password") !== values.get("passwordConfirm")) {
+    authStatus.textContent = "Las contraseñas no coinciden.";
+    return;
+  }
+  button.disabled = true;
+  authStatus.textContent = path === "/api/auth/login" ? "Iniciando sesión..." : "Creando cuenta...";
+  try {
+    const response = await fetch(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: values.get("email"), password: values.get("password") }),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "No fue posible autenticar la cuenta.");
+    loginForm.reset();
+    registerForm.reset();
+    authStatus.textContent = "";
+    await showApplication(data.user);
+  } catch (error) {
+    authStatus.textContent = error instanceof Error ? error.message : "No fue posible autenticar la cuenta.";
+  } finally {
+    button.disabled = false;
+  }
 }
 
 function moneyInCents(value) {
@@ -1081,6 +1138,36 @@ cancelEditButton.addEventListener("click", () => {
   formMessage.textContent = "Edición cancelada.";
 });
 
+loginForm.addEventListener("submit", (event) => {
+  submitAuthentication(event, loginForm, loginButton, "/api/auth/login");
+});
+
+registerForm.addEventListener("submit", (event) => {
+  submitAuthentication(event, registerForm, registerButton, "/api/auth/register");
+});
+
+logoutButton.addEventListener("click", async () => {
+  logoutButton.disabled = true;
+  try {
+    const response = await fetch("/api/auth/logout", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "No fue posible cerrar la sesión.");
+    appContent.hidden = true;
+    authPanel.hidden = false;
+    userEmail.hidden = true;
+    logoutButton.hidden = true;
+    authStatus.textContent = "Sesión cerrada.";
+  } catch (error) {
+    authStatus.textContent = error instanceof Error ? error.message : "No fue posible cerrar la sesión.";
+  } finally {
+    logoutButton.disabled = false;
+  }
+});
+
 form.addEventListener("submit", (event) => {
   event.preventDefault();
   movementStatus.textContent = "";
@@ -1089,5 +1176,4 @@ form.addEventListener("submit", (event) => {
 reportPeriod.addEventListener("change", () => {
   loadPersonalReport(monthInput.value);
 });
-loadExpenses();
-loadOptions();
+initializeAuthentication();

@@ -9,9 +9,49 @@
 </head>
 <body>
   <header>
-    <div class="topbar"><strong>◈ Mis finanzas</strong><span>USO LOCAL</span></div>
+    <div class="topbar">
+      <strong>◈ Mis finanzas</strong>
+      <div class="user-actions">
+        <span id="user-email" hidden></span>
+        <button id="logout-button" type="button" hidden>Cerrar sesión</button>
+        <span>USO LOCAL</span>
+      </div>
+    </div>
   </header>
   <main>
+    <section id="auth-panel" class="panel auth-panel" aria-label="Cuenta de usuario">
+      <p class="eyebrow">FINANZAS PERSONALES</p>
+      <h1>Tu cuenta</h1>
+      <p>Inicia sesión o crea una cuenta para guardar tus finanzas en un perfil propio.</p>
+      <p id="auth-status" role="status" aria-live="polite"></p>
+      <div class="auth-forms">
+        <form id="login-form">
+          <h2>Iniciar sesión</h2>
+          <label for="login-email">Correo
+            <input id="login-email" name="email" type="email" maxlength="254" autocomplete="username" required>
+          </label>
+          <label for="login-password">Contraseña
+            <input id="login-password" name="password" type="password" minlength="12" maxlength="128" autocomplete="current-password" required>
+          </label>
+          <button id="login-button" type="submit">Entrar</button>
+        </form>
+        <form id="register-form">
+          <h2>Crear cuenta</h2>
+          <label for="register-email">Correo
+            <input id="register-email" name="email" type="email" maxlength="254" autocomplete="username" required>
+          </label>
+          <label for="register-password">Contraseña (mínimo 12 caracteres)
+            <input id="register-password" name="password" type="password" minlength="12" maxlength="128" autocomplete="new-password" required>
+          </label>
+          <label for="register-password-confirm">Repetir contraseña
+            <input id="register-password-confirm" name="passwordConfirm" type="password" minlength="12" maxlength="128" autocomplete="new-password" required>
+          </label>
+          <p class="auth-note">Se creará un perfil nuevo. Los datos personales que ya existían no se importan.</p>
+          <button id="register-button" type="submit">Crear cuenta</button>
+        </form>
+      </div>
+    </section>
+    <div id="app-content" hidden>
     <div class="intro">
       <div>
         <p class="eyebrow">TU RESUMEN MENSUAL</p>
@@ -27,7 +67,7 @@
         </div>
       </form>
     </div>
-    <p class="notice">Esta página muestra tus finanzas personales. La aplicación es local y no tiene autenticación.</p>
+    <p class="notice">Tus movimientos quedan asociados a tu cuenta. La aplicación funciona localmente en este equipo.</p>
     <p id="message" role="status" aria-live="polite"></p>
     <p id="movement-status" role="status" aria-live="polite"></p>
     <section id="results" hidden aria-label="Resumen de gastos">
@@ -209,7 +249,7 @@
       </form>
     </section>
     <section class="panel" id="income-registration">
-      <p class="eyebrow">HOGAR PERSONAL</p>
+      <p class="eyebrow">MOVIMIENTO ENTRE CUENTAS</p>
       <h2>Registrar ingreso</h2>
       <form id="income-form">
         <div class="form-grid">
@@ -234,7 +274,7 @@
       </form>
     </section>
     <section class="panel" id="transfer-registration">
-      <p class="eyebrow">HOGAR PERSONAL</p>
+      <p class="eyebrow">MOVIMIENTO ENTRE CUENTAS</p>
       <h2>Transferir entre cuentas</h2>
       <form id="transfer-form">
         <div class="form-grid">
@@ -258,6 +298,7 @@
         <button id="save-transfer" type="submit" disabled>Guardar transferencia</button>
       </form>
     </section>
+    </div>
   </main>
 </body>
 </html>

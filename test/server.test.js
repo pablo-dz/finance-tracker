@@ -1,15 +1,135 @@
 import assert from "node:assert/strict";
+import { scryptSync } from "node:crypto";
 import { once } from "node:events";
 import { test } from "node:test";
 import { createDashboardServer } from "../server.js";
 
-async function startServer(t, pool, options) {
-  const server = createDashboardServer(pool, options);
+async function listen(t, server) {
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
   t.after(() => new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve())));
   return `http://127.0.0.1:${server.address().port}`;
 }
+
+async function startServer(t, pool, options = {}) {
+  const server = createDashboardServer(pool, {
+    authenticate: async () => ({ userId: 1, email: "test@example.com", householdId: options.householdId ?? null }),
+  });
+  return listen(t, server);
+}
+
+async function startSessionServer(t, pool) {
+  return listen(t, createDashboardServer(pool));
+}
+
+test("requiere una sesión para consultar datos personales", async (t) => {
+  const url = await startSessionServer(t, { query() { throw new Error("No debe consultar la base"); } });
+  const session = await fetch(`${url}/api/auth/session`);
+  assert.deepEqual(await session.json(), { user: null });
+  assert.equal((await fetch(`${url}/api/gastos?mes=2026-11`)).status, 401);
+});
+
+test("crea una cuenta con perfil propio y emite una sesión HttpOnly", async (t) => {
+  const statements = [];
+  let storedPasswordHash;
+  const client = {
+    async query(sql, params = []) {
+      statements.push({ sql, params });
+      if (sql.includes("INSERT INTO finance.app_user")) {
+        storedPasswordHash = params[1];
+        return { rows: [{ user_id: 24 }] };
+      }
+      if (sql.includes("INSERT INTO finance.household")) return { rows: [{ household_id: 42 }] };
+      if (sql.includes("INSERT INTO finance.member")) return { rows: [{ member_id: 9 }] };
+      return { rows: [] };
+    },
+    release() {},
+  };
+  const pool = {
+    async connect() { return client; },
+    async query(sql, params = []) {
+      statements.push({ sql, params });
+      if (sql.includes("FROM finance.app_session")) {
+        return { rows: [{ userId: 24, email: "persona@example.com", householdId: 42 }] };
+      }
+      return { rows: [] };
+    },
+  };
+  const url = await startSessionServer(t, pool);
+  const response = await fetch(`${url}/api/auth/register`, {
+    method: "POST",
+    headers: { Origin: url, "Content-Type": "application/json" },
+    body: JSON.stringify({ email: " Persona@Example.com ", password: "correct horse battery" }),
+  });
+  assert.equal(response.status, 201);
+  assert.deepEqual(await response.json(), { user: { email: "persona@example.com" } });
+  assert.notEqual(storedPasswordHash, "correct horse battery");
+  assert.match(storedPasswordHash, /^scrypt\$/);
+  assert.ok(statements.some(({ sql, params }) => sql.includes("owner_user_id") && params[0] === 24));
+  assert.ok(statements.some(({ sql }) => sql.includes("INSERT INTO finance.account")));
+  const cookie = response.headers.get("set-cookie");
+  assert.match(cookie, /HttpOnly/);
+  assert.match(cookie, /SameSite=Strict/);
+
+  const session = await fetch(`${url}/api/auth/session`, { headers: { Cookie: cookie.split(";")[0] } });
+  assert.deepEqual(await session.json(), { user: { email: "persona@example.com" } });
+  assert.match(statements.find(({ sql }) => sql.includes("FROM finance.app_session")).sql, /h\.owner_user_id = u\.user_id/);
+});
+
+test("autentica y cierra sesión sin exponer si un correo está registrado", async (t) => {
+  const salt = Buffer.alloc(16, 1).toString("hex");
+  const passwordHash = `scrypt$${salt}$${scryptSync("correct horse battery", Buffer.from(salt, "hex"), 64).toString("hex")}`;
+  const statements = [];
+  const pool = {
+    async query(sql, params = []) {
+      statements.push({ sql, params });
+      if (sql.includes("password_hash")) {
+        return { rows: [{
+          userId: 24, email: "persona@example.com", passwordHash, householdId: 42,
+        }] };
+      }
+      return { rows: [] };
+    },
+  };
+  const url = await startSessionServer(t, pool);
+  const login = async (email, password) => fetch(`${url}/api/auth/login`, {
+    method: "POST",
+    headers: { Origin: url, "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+  assert.equal((await login("persona@example.com", "incorrect password")).status, 401);
+  assert.equal((await login("unknown@example.com", "incorrect password")).status, 401);
+  assert.deepEqual(await (await login("persona@example.com", "correct horse battery")).json(), {
+    user: { email: "persona@example.com" },
+  });
+  const cookie = statements.find(({ sql }) => sql.includes("INSERT INTO finance.app_session")).params[0];
+  assert.match(cookie, /^[a-f\d]{64}$/);
+
+  const logout = await fetch(`${url}/api/auth/logout`, {
+    method: "POST",
+    headers: { Origin: url, "Content-Type": "application/json", Cookie: `finance_session=${"a".repeat(64)}` },
+    body: "{}",
+  });
+  assert.equal(logout.status, 200);
+  assert.match(logout.headers.get("set-cookie"), /Max-Age=0/);
+  assert.ok(statements.some(({ sql }) => sql.includes("DELETE FROM finance.app_session")));
+});
+
+test("valida el registro y bloquea solicitudes de autenticación de otros orígenes", async (t) => {
+  let connections = 0;
+  const url = await startSessionServer(t, {
+    async connect() { connections += 1; throw new Error("No debe conectar"); },
+  });
+  const register = (body, origin = url) => fetch(`${url}/api/auth/register`, {
+    method: "POST",
+    headers: { Origin: origin, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  assert.equal((await register({ email: "user@example.com", password: "long enough password" }, "https://otro-sitio.example")).status, 403);
+  assert.equal((await register({ email: "no-es-email", password: "long enough password" })).status, 400);
+  assert.equal((await register({ email: "user@example.com", password: "short" })).status, 400);
+  assert.equal(connections, 0);
+});
 
 test("consulta solo los gastos personales y el mes seleccionado", async (t) => {
   const queries = [];
@@ -42,6 +162,8 @@ test("la página ofrece una única vista de finanzas personales", async (t) => {
   const response = await fetch(url);
   const page = await response.text();
   assert.equal(response.status, 200);
+  assert.match(page, /id="login-form"/);
+  assert.match(page, /id="register-form"/);
   assert.match(page, /REGISTRO PERSONAL/);
   assert.doesNotMatch(page, /id="view"|Hogar personal|Datos de prueba/);
 });

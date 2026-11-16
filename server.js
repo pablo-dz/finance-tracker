@@ -1,5 +1,7 @@
 import { createServer } from "node:http";
+import { createHash, randomBytes, scrypt as scryptCallback, timingSafeEqual } from "node:crypto";
 import { readFile } from "node:fs/promises";
+import { promisify } from "node:util";
 
 const files = {
   "/": ["./web/index.html", "text/html; charset=utf-8"],
@@ -7,6 +9,155 @@ const files = {
   "/chart.js": ["./web/chart.js", "text/javascript; charset=utf-8"],
   "/styles.css": ["./web/styles.css", "text/css; charset=utf-8"],
 };
+const scrypt = promisify(scryptCallback);
+const sessionCookie = "finance_session";
+const sessionLifetimeSeconds = 30 * 24 * 60 * 60;
+const defaultCategories = [
+  ["Rent", "expense", true],
+  ["Utilities", "expense", true],
+  ["Groceries", "expense", false],
+  ["Transport", "expense", false],
+  ["Dining out", "expense", false],
+  ["Subscriptions", "expense", true],
+  ["Health", "expense", false],
+  ["Leisure", "expense", false],
+  ["Salary", "income", false],
+  ["Other income", "income", false],
+];
+
+function validEmail(value) {
+  return typeof value === "string" && value.trim().length <= 254
+    && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+}
+
+function validPassword(value) {
+  return typeof value === "string" && value.length >= 12 && value.length <= 128;
+}
+
+async function hashPassword(password) {
+  const salt = randomBytes(16);
+  const hash = Buffer.from(await scrypt(password, salt, 64));
+  return `scrypt$${salt.toString("hex")}$${hash.toString("hex")}`;
+}
+
+async function verifyPassword(password, storedHash) {
+  const [algorithm, saltHex, hashHex, extra] = typeof storedHash === "string" ? storedHash.split("$") : [];
+  if (algorithm !== "scrypt" || !/^[a-f\d]{32}$/.test(saltHex) || !/^[a-f\d]{128}$/.test(hashHex) || extra !== undefined) {
+    return false;
+  }
+  const expected = Buffer.from(hashHex, "hex");
+  const actual = Buffer.from(await scrypt(password, Buffer.from(saltHex, "hex"), expected.length));
+  return timingSafeEqual(actual, expected);
+}
+
+function requestToken(request) {
+  const cookie = request.headers.cookie?.split(";").map((part) => part.trim())
+    .find((part) => part.startsWith(`${sessionCookie}=`));
+  const token = cookie?.slice(sessionCookie.length + 1);
+  return token && /^[a-f\d]{64}$/.test(token) ? token : null;
+}
+
+function tokenHash(token) {
+  return createHash("sha256").update(token).digest("hex");
+}
+
+async function resolveSession(pool, request) {
+  const token = requestToken(request);
+  if (!token) return null;
+  const result = await pool.query(
+    `SELECT u.user_id AS "userId", u.email, h.household_id AS "householdId"
+     FROM finance.app_session s
+     JOIN finance.app_user u ON u.user_id = s.user_id
+     JOIN finance.household h ON h.owner_user_id = u.user_id
+     WHERE s.token_hash = $1 AND s.expires_at > now()`,
+    [tokenHash(token)],
+  );
+  return result.rows[0] ?? null;
+}
+
+function sessionCookieHeader(token) {
+  return `${sessionCookie}=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${sessionLifetimeSeconds}`;
+}
+
+async function readAuthBody(request, response) {
+  const origin = `http://127.0.0.1:${request.socket.localPort}`;
+  if (request.headers.host !== `127.0.0.1:${request.socket.localPort}` || request.headers.origin !== origin
+    || request.headers["content-type"] !== "application/json") {
+    sendJson(response, 403, { error: "Solicitud no permitida." });
+    return null;
+  }
+  const length = request.headers["content-length"];
+  if (!length || !/^\d+$/.test(length) || Number(length) > 8192) {
+    sendJson(response, 413, { error: "El contenido de la solicitud es demasiado grande o inválido." });
+    return null;
+  }
+  const chunks = [];
+  let received = 0;
+  for await (const chunk of request) {
+    received += chunk.length;
+    if (received > 8192) {
+      sendJson(response, 413, { error: "El contenido de la solicitud es demasiado grande." });
+      return null;
+    }
+    chunks.push(chunk);
+  }
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  } catch (error) {
+    if (!(error instanceof SyntaxError)) throw error;
+    sendJson(response, 400, { error: "El contenido de la solicitud no es válido." });
+    return null;
+  }
+}
+
+async function createUser(pool, email, password) {
+  const passwordHash = await hashPassword(password);
+  const token = randomBytes(32).toString("hex");
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const userResult = await client.query(
+      "INSERT INTO finance.app_user (email, password_hash) VALUES ($1, $2) RETURNING user_id",
+      [email, passwordHash],
+    );
+    const userId = userResult.rows[0].user_id;
+    const householdResult = await client.query(
+      "INSERT INTO finance.household (name, base_currency, owner_user_id) VALUES ('Finanzas personales', 'CLP', $1) RETURNING household_id",
+      [userId],
+    );
+    const householdId = householdResult.rows[0].household_id;
+    const memberResult = await client.query(
+      "INSERT INTO finance.member (household_id, name) VALUES ($1, 'Yo') RETURNING member_id",
+      [householdId],
+    );
+    await client.query(
+      "INSERT INTO finance.account (household_id, member_id, name, type, currency) VALUES ($1, $2, 'Cuenta principal', 'checking', 'CLP')",
+      [householdId, memberResult.rows[0].member_id],
+    );
+    await client.query(
+      `INSERT INTO finance.category (household_id, name, kind, is_fixed)
+       SELECT $1, category.name, category.kind, category.is_fixed
+       FROM unnest($2::text[], $3::text[], $4::boolean[]) AS category(name, kind, is_fixed)`,
+      [
+        householdId,
+        defaultCategories.map(([name]) => name),
+        defaultCategories.map(([, kind]) => kind),
+        defaultCategories.map(([, , isFixed]) => isFixed),
+      ],
+    );
+    await client.query(
+      "INSERT INTO finance.app_session (token_hash, user_id, expires_at) VALUES ($1, $2, now() + interval '30 days')",
+      [tokenHash(token), userId],
+    );
+    await client.query("COMMIT");
+    return { token, user: { email, householdId } };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
 
 function sendJson(response, status, value) {
   response.writeHead(status, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
@@ -100,10 +251,95 @@ function validTransactionId(value) {
     && BigInt(value) <= 9223372036854775807n;
 }
 
-export function createDashboardServer(pool, { householdId = null } = {}) {
+export function createDashboardServer(pool, { authenticate = (request) => resolveSession(pool, request) } = {}) {
   return createServer(async (request, response) => {
     try {
       const url = new URL(request.url, "http://localhost");
+      if (url.pathname === "/api/auth/session") {
+        if (request.method !== "GET") {
+          response.writeHead(405, { Allow: "GET" });
+          response.end();
+          return;
+        }
+        const user = await authenticate(request);
+        sendJson(response, 200, { user: user ? { email: user.email } : null });
+        return;
+      }
+
+      if (["/api/auth/register", "/api/auth/login", "/api/auth/logout"].includes(url.pathname)) {
+        if (request.method !== "POST") {
+          response.writeHead(405, { Allow: "POST" });
+          response.end();
+          return;
+        }
+        const body = await readAuthBody(request, response);
+        if (body === null) {
+          if (!response.headersSent) sendJson(response, 400, { error: "El contenido de la solicitud no es válido." });
+          return;
+        }
+
+        if (url.pathname === "/api/auth/logout") {
+          const token = requestToken(request);
+          if (token) {
+            await pool.query("DELETE FROM finance.app_session WHERE token_hash = $1", [tokenHash(token)]);
+          }
+          response.setHeader("Set-Cookie", `${sessionCookie}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0`);
+          sendJson(response, 200, { message: "Sesión cerrada." });
+          return;
+        }
+
+        const emailValue = body && typeof body === "object" && !Array.isArray(body) ? body.email : null;
+        const password = body && typeof body === "object" && !Array.isArray(body) ? body.password : null;
+        if (!validEmail(emailValue) || !validPassword(password)) {
+          sendJson(response, 400, { error: "Ingresa un correo válido y una contraseña de entre 12 y 128 caracteres." });
+          return;
+        }
+        const email = emailValue.trim().toLowerCase();
+
+        if (url.pathname === "/api/auth/register") {
+          try {
+            const result = await createUser(pool, email, password);
+            response.setHeader("Set-Cookie", sessionCookieHeader(result.token));
+            sendJson(response, 201, { user: { email: result.user.email } });
+          } catch (error) {
+            if (error?.code === "23505") {
+              sendJson(response, 409, { error: "Ya existe una cuenta con ese correo." });
+              return;
+            }
+            throw error;
+          }
+          return;
+        }
+
+        const result = await pool.query(
+          `SELECT u.user_id AS "userId", u.email, u.password_hash AS "passwordHash",
+                  h.household_id AS "householdId"
+           FROM finance.app_user u
+           JOIN finance.household h ON h.owner_user_id = u.user_id
+           WHERE u.email = $1`,
+          [email],
+        );
+        const user = result.rows[0];
+        if (!user || !await verifyPassword(password, user.passwordHash)) {
+          sendJson(response, 401, { error: "Correo o contraseña incorrectos." });
+          return;
+        }
+        const token = randomBytes(32).toString("hex");
+        await pool.query(
+          "INSERT INTO finance.app_session (token_hash, user_id, expires_at) VALUES ($1, $2, now() + interval '30 days')",
+          [tokenHash(token), user.userId],
+        );
+        response.setHeader("Set-Cookie", sessionCookieHeader(token));
+        sendJson(response, 200, { user: { email: user.email } });
+        return;
+      }
+
+      const session = url.pathname.startsWith("/api/") ? await authenticate(request) : null;
+      if (url.pathname.startsWith("/api/") && !session) {
+        sendJson(response, 401, { error: "Inicia sesión para continuar." });
+        return;
+      }
+      const householdId = session?.householdId ?? null;
       const expenseWrite = url.pathname === "/api/gastos" && ["POST", "PUT", "DELETE"].includes(request.method);
       const budgetWrite = url.pathname === "/api/presupuestos" && ["POST", "PUT"].includes(request.method);
       const incomeWrite = url.pathname === "/api/ingresos" && request.method === "POST";
