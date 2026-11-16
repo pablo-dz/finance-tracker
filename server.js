@@ -42,6 +42,14 @@ function validBudget(body) {
     && typeof body.amount === "string" && /^(?:0|[1-9]\d{0,11})$/.test(body.amount);
 }
 
+function validCategoryName(value) {
+  return typeof value === "string" && value.trim().length > 0 && value.trim().length <= 100;
+}
+
+function validCategoryId(value) {
+  return Number.isSafeInteger(value) && value > 0 && value <= 2147483647;
+}
+
 function validExpense(body) {
   return body && typeof body === "object" && !Array.isArray(body)
     && typeof body.merchant === "string" && body.merchant.trim().length > 0 && body.merchant.trim().length <= 100
@@ -106,7 +114,8 @@ export function createDashboardServer(pool, { householdId = null } = {}) {
       const savingsGoalWrite = url.pathname === "/api/metas" && request.method === "POST";
       const contributionWrite = url.pathname === "/api/metas/aportes" && request.method === "POST";
       const contributionDelete = url.pathname === "/api/metas/aportes" && request.method === "DELETE";
-      if (expenseWrite || budgetWrite || incomeWrite || incomeDelete || transferWrite || transferDelete
+      const categoryWrite = url.pathname === "/api/categorias" && ["POST", "PUT", "PATCH"].includes(request.method);
+      if (expenseWrite || budgetWrite || categoryWrite || incomeWrite || incomeDelete || transferWrite || transferDelete
         || openingBalanceWrite || savingsGoalWrite || contributionWrite || contributionDelete) {
         const origin = `http://127.0.0.1:${request.socket.localPort}`;
         if (request.headers.host !== `127.0.0.1:${request.socket.localPort}` || request.headers.origin !== origin
@@ -182,9 +191,79 @@ export function createDashboardServer(pool, { householdId = null } = {}) {
           sendJson(response, 400, { error: "El identificador del aporte no es válido." });
           return;
         }
+        if (categoryWrite && (request.method === "POST"
+          ? !validCategoryName(expense?.name)
+          : request.method === "PUT"
+            ? !validCategoryId(expense?.id) || !validCategoryName(expense?.name)
+            : !validCategoryId(expense?.id) || typeof expense?.active !== "boolean")) {
+          sendJson(response, 400, { error: "Revisa el nombre o el estado de la categoría." });
+          return;
+        }
         const member = await personalMember(pool, householdId);
         if (!member) {
-          sendJson(response, 409, { error: "Configura un hogar personal en CLP con un único integrante activo." });
+          sendJson(response, 409, { error: "La configuración personal requiere CLP y una sola persona activa." });
+          return;
+        }
+        if (categoryWrite) {
+          let result;
+          if (request.method === "POST") {
+            result = await pool.query(
+              `INSERT INTO finance.category (household_id, name, kind)
+               SELECT h.household_id, $2, 'expense'
+               FROM finance.household h
+               JOIN finance.member m ON m.household_id = h.household_id AND m.member_id = $3 AND m.is_active
+               WHERE h.household_id = $1 AND h.base_currency = 'CLP' AND h.name <> '[DEMO] Hogar de prueba'
+                 AND (SELECT count(*) FROM finance.member WHERE household_id = h.household_id AND is_active) = 1
+               ON CONFLICT (household_id, name) DO NOTHING
+               RETURNING category_id`,
+              [member.household_id, expense.name.trim(), member.member_id],
+            );
+          } else if (request.method === "PUT") {
+            try {
+              result = await pool.query(
+                `UPDATE finance.category c SET name = $3
+                 FROM finance.household h
+                 JOIN finance.member m ON m.household_id = h.household_id AND m.member_id = $4 AND m.is_active
+                 WHERE h.household_id = $1 AND h.base_currency = 'CLP' AND h.name <> '[DEMO] Hogar de prueba'
+                   AND c.household_id = h.household_id AND c.category_id = $2 AND c.kind = 'expense' AND c.is_active
+                   AND NOT EXISTS (
+                     SELECT 1 FROM finance.category other
+                     WHERE other.household_id = h.household_id AND other.name = $3
+                       AND other.category_id <> c.category_id
+                   )
+                   AND (SELECT count(*) FROM finance.member WHERE household_id = h.household_id AND is_active) = 1
+                 RETURNING c.category_id`,
+                [member.household_id, expense.id, expense.name.trim(), member.member_id],
+              );
+            } catch (error) {
+              if (error?.code !== "23505") throw error;
+              sendJson(response, 409, { error: "Ya existe una categoría con ese nombre." });
+              return;
+            }
+          } else {
+            result = await pool.query(
+              `UPDATE finance.category c SET is_active = $3
+               FROM finance.household h
+               JOIN finance.member m ON m.household_id = h.household_id AND m.member_id = $4 AND m.is_active
+               WHERE h.household_id = $1 AND h.base_currency = 'CLP' AND h.name <> '[DEMO] Hogar de prueba'
+                 AND c.household_id = h.household_id AND c.category_id = $2 AND c.kind = 'expense'
+                 AND (SELECT count(*) FROM finance.member WHERE household_id = h.household_id AND is_active) = 1
+               RETURNING c.category_id`,
+              [member.household_id, expense.id, expense.active, member.member_id],
+            );
+          }
+          if (result.rows.length !== 1) {
+            sendJson(response, 409, {
+              error: request.method === "POST"
+                ? "Ya existe una categoría con ese nombre. Revisa también las categorías archivadas."
+                : "La categoría no está disponible o el nombre ya está en uso.",
+            });
+            return;
+          }
+          const message = request.method === "POST" ? "Categoría creada correctamente."
+            : request.method === "PUT" ? "Categoría renombrada correctamente."
+              : expense.active ? "Categoría restaurada correctamente." : "Categoría archivada; su historial se conserva.";
+          sendJson(response, request.method === "POST" ? 201 : 200, { message });
           return;
         }
         if (incomeDelete || transferDelete) {
@@ -348,7 +427,7 @@ export function createDashboardServer(pool, { householdId = null } = {}) {
              SELECT h.household_id, m.member_id, c.category_id, ($4 || '-01')::date, $5::numeric
              FROM finance.household h
              JOIN finance.member m ON m.household_id = h.household_id AND m.member_id = $2 AND m.is_active
-             JOIN finance.category c ON c.household_id = h.household_id AND c.category_id = $3 AND c.kind = 'expense'
+             JOIN finance.category c ON c.household_id = h.household_id AND c.category_id = $3 AND c.kind = 'expense' AND c.is_active
              WHERE h.household_id = $1 AND h.base_currency = 'CLP' AND h.name <> '[DEMO] Hogar de prueba'
                AND (SELECT count(*) FROM finance.member WHERE household_id = h.household_id AND is_active) = 1
              ON CONFLICT (household_id, (COALESCE(member_id, 0)), category_id, month_start) DO NOTHING
@@ -359,7 +438,7 @@ export function createDashboardServer(pool, { householdId = null } = {}) {
              FROM finance.household h, finance.member m, finance.category c
              WHERE h.household_id = $1 AND h.base_currency = 'CLP' AND h.name <> '[DEMO] Hogar de prueba'
                AND m.household_id = h.household_id AND m.member_id = $2 AND m.is_active
-               AND c.household_id = h.household_id AND c.category_id = $3 AND c.kind = 'expense'
+               AND c.household_id = h.household_id AND c.category_id = $3 AND c.kind = 'expense' AND c.is_active
                AND b.household_id = h.household_id AND b.member_id = m.member_id AND b.category_id = c.category_id
                AND b.month_start = ($4 || '-01')::date AND b.amount = $6::numeric
                AND (SELECT count(*) FROM finance.member WHERE household_id = h.household_id AND is_active) = 1
@@ -405,7 +484,7 @@ export function createDashboardServer(pool, { householdId = null } = {}) {
            JOIN finance.member m ON m.household_id = h.household_id AND m.member_id = $2 AND m.is_active
            JOIN finance.account a ON a.household_id = h.household_id AND a.account_id = $3
              AND a.is_active AND a.currency = 'CLP' AND (a.member_id IS NULL OR a.member_id = m.member_id)
-           JOIN finance.category c ON c.household_id = h.household_id AND c.category_id = $4 AND c.kind = 'expense'
+           JOIN finance.category c ON c.household_id = h.household_id AND c.category_id = $4 AND c.kind = 'expense' AND c.is_active
            WHERE h.household_id = $1 AND h.base_currency = 'CLP' AND h.name <> '[DEMO] Hogar de prueba'
              AND (SELECT count(*) FROM finance.member WHERE household_id = h.household_id AND is_active) = 1
            RETURNING transaction_id::text`,
@@ -419,7 +498,7 @@ export function createDashboardServer(pool, { householdId = null } = {}) {
              AND m.household_id = h.household_id AND m.member_id = $2 AND m.is_active
              AND a.household_id = h.household_id AND a.account_id = $3
              AND a.is_active AND a.currency = 'CLP' AND (a.member_id IS NULL OR a.member_id = m.member_id)
-             AND c.household_id = h.household_id AND c.category_id = $4 AND c.kind = 'expense'
+             AND c.household_id = h.household_id AND c.category_id = $4 AND c.kind = 'expense' AND c.is_active
              AND t.transaction_id = $8::bigint AND t.household_id = h.household_id
              AND t.member_id = m.member_id AND t.type = 'expense' AND t.amount = trunc(t.amount)
              AND (SELECT count(*) FROM finance.member WHERE household_id = h.household_id AND is_active) = 1
@@ -427,7 +506,7 @@ export function createDashboardServer(pool, { householdId = null } = {}) {
           [...parameters, expense.id],
         );
         if (result.rows.length !== 1) {
-          sendJson(response, 400, { error: "El gasto, cuenta o categoría no pertenece al hogar personal o ya no está disponible." });
+          sendJson(response, 400, { error: "El gasto, la cuenta o la categoría no pertenece a tu configuración personal o ya no está disponible." });
           return;
         }
         sendJson(response, request.method === "POST" ? 201 : 200, {
@@ -443,16 +522,34 @@ export function createDashboardServer(pool, { householdId = null } = {}) {
               : url.pathname === "/api/cuentas/saldo-inicial" ? "GET, PUT"
                 : url.pathname === "/api/metas" ? "GET, POST"
                   : url.pathname === "/api/metas/aportes" ? "POST, DELETE"
-                    : url.pathname === "/api/reportes" ? "GET" : "GET";
+                    : url.pathname === "/api/reportes" ? "GET"
+                      : url.pathname === "/api/categorias" ? "GET, POST, PUT, PATCH" : "GET";
         response.writeHead(405, { Allow: allow });
         response.end();
+        return;
+      }
+
+      if (url.pathname === "/api/categorias") {
+        const member = await personalMember(pool, householdId);
+        if (!member) {
+          sendJson(response, 409, { error: "La configuración personal requiere CLP y una sola persona activa." });
+          return;
+        }
+        const result = await pool.query(
+          `SELECT category_id AS id, name, is_active AS active
+           FROM finance.category
+           WHERE household_id = $1 AND kind = 'expense'
+           ORDER BY is_active DESC, name, category_id`,
+          [member.household_id],
+        );
+        sendJson(response, 200, { categories: result.rows });
         return;
       }
 
       if (url.pathname === "/api/opciones") {
         const member = await personalMember(pool, householdId);
         if (!member) {
-          sendJson(response, 409, { error: "Configura FINANCE_HOUSEHOLD_ID con un hogar personal en CLP que tenga un único integrante activo." });
+          sendJson(response, 409, { error: "Configura tu perfil personal en CLP con una sola persona activa." });
           return;
         }
         const accounts = await pool.query(
@@ -475,7 +572,7 @@ export function createDashboardServer(pool, { householdId = null } = {}) {
           [member.household_id, member.member_id],
         );
         const categories = await pool.query(
-          "SELECT category_id AS id, name FROM finance.category WHERE household_id = $1 AND kind = 'expense' ORDER BY name, category_id",
+          "SELECT category_id AS id, name FROM finance.category WHERE household_id = $1 AND kind = 'expense' AND is_active ORDER BY name, category_id",
           [member.household_id],
         );
         const incomeCategories = await pool.query(
@@ -577,7 +674,7 @@ export function createDashboardServer(pool, { householdId = null } = {}) {
         }
         const member = await personalMember(pool, householdId);
         if (!member) {
-          sendJson(response, 409, { error: "Configura un hogar personal en CLP con un único integrante activo." });
+          sendJson(response, 409, { error: "La configuración personal requiere CLP y una sola persona activa." });
           return;
         }
         const result = await pool.query(
@@ -591,7 +688,7 @@ export function createDashboardServer(pool, { householdId = null } = {}) {
                AND t.tx_date < (($3 || '-01')::date + interval '1 month')
              GROUP BY t.category_id
            )
-           SELECT c.category_id AS "categoryId", c.name AS category, b.amount::text AS budget,
+           SELECT c.category_id AS "categoryId", c.name AS category, c.is_active AS "isActive", b.amount::text AS budget,
                   COALESCE(s.amount, 0)::text AS spent,
                   ABS(b.amount - COALESCE(s.amount, 0))::text AS difference,
                   b.amount < COALESCE(s.amount, 0) AS exceeded
@@ -600,6 +697,7 @@ export function createDashboardServer(pool, { householdId = null } = {}) {
              AND b.category_id = c.category_id AND b.month_start = ($3 || '-01')::date
            LEFT JOIN spent s ON s.category_id = c.category_id
            WHERE c.household_id = $1 AND c.kind = 'expense'
+             AND (c.is_active OR b.budget_id IS NOT NULL OR s.category_id IS NOT NULL)
            ORDER BY c.name, c.category_id`,
           [member.household_id, member.member_id, month],
         );
@@ -669,31 +767,10 @@ export function createDashboardServer(pool, { householdId = null } = {}) {
           sendJson(response, 400, { error: "Selecciona un mes válido." });
           return;
         }
-        const mode = url.searchParams.get("vista") ?? "demo";
-        if (!["demo", "personal"].includes(mode) || url.searchParams.getAll("vista").length > 1) {
-          sendJson(response, 400, { error: "Selecciona una vista válida." });
+        const member = await personalMember(pool, householdId);
+        if (!member) {
+          sendJson(response, 409, { error: "La configuración personal requiere CLP y una sola persona activa." });
           return;
-        }
-        let selectedHousehold;
-        let selectedMember = null;
-        if (mode === "personal") {
-          const member = await personalMember(pool, householdId);
-          if (!member) {
-            sendJson(response, 409, { error: "Configura un hogar personal en CLP con un único integrante activo." });
-            return;
-          }
-          selectedHousehold = member.household_id;
-          selectedMember = member.member_id;
-        } else {
-          const households = await pool.query(
-            "SELECT household_id FROM finance.household WHERE name = $1",
-            ["[DEMO] Hogar de prueba"],
-          );
-          if (households.rows.length !== 1) {
-            sendJson(response, 409, { error: "Debe existir exactamente un hogar de prueba. Revisa la carga de datos ficticios." });
-            return;
-          }
-          selectedHousehold = households.rows[0].household_id;
         }
 
         const result = await pool.query(
@@ -727,7 +804,7 @@ export function createDashboardServer(pool, { householdId = null } = {}) {
                'category', COALESCE(category, 'Sin categoría'), 'amount', amount::text
              ) ORDER BY tx_date DESC, transaction_id DESC) FROM filtered), '[]'::json) AS expenses
            FROM total`,
-          [selectedHousehold, month, selectedMember],
+          [member.household_id, month, member.member_id],
         );
         sendJson(response, 200, { month, ...result.rows[0] });
         return;

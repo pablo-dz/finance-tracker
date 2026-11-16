@@ -11,12 +11,12 @@ async function startServer(t, pool, options) {
   return `http://127.0.0.1:${server.address().port}`;
 }
 
-test("consulta solo el hogar de prueba y el mes seleccionado", async (t) => {
+test("consulta solo los gastos personales y el mes seleccionado", async (t) => {
   const queries = [];
   const pool = {
     async query(sql, params) {
       queries.push({ sql, params });
-      if (queries.length === 1) return { rows: [{ household_id: 42 }] };
+      if (queries.length === 1) return { rows: [{ household_id: 42, member_id: 3 }] };
       return { rows: [{
         total: "123.50",
         categories: [{ category: "Hogar", total: "123.50", count: 2, grand_total: "123.50" }],
@@ -24,8 +24,8 @@ test("consulta solo el hogar de prueba y el mes seleccionado", async (t) => {
       }] };
     },
   };
-  const url = await startServer(t, pool);
-  const response = await fetch(`${url}/api/gastos?mes=2026-11`);
+  const url = await startServer(t, pool, { householdId: 42 });
+  const response = await fetch(`${url}/api/gastos?mes=2026-11&vista=demo`);
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), {
     month: "2026-11",
@@ -33,8 +33,17 @@ test("consulta solo el hogar de prueba y el mes seleccionado", async (t) => {
     categories: [{ category: "Hogar", total: "123.50", count: 2, grand_total: "123.50" }],
     expenses: [{ date: "2026-11-02", description: "Compra", category: "Hogar", amount: "123.50" }],
   });
-  assert.deepEqual(queries[0].params, ["[DEMO] Hogar de prueba"]);
-  assert.deepEqual(queries[1].params, [42, "2026-11", null]);
+  assert.deepEqual(queries[0].params, [42, "[DEMO] Hogar de prueba"]);
+  assert.deepEqual(queries[1].params, [42, "2026-11", 3]);
+});
+
+test("la página ofrece una única vista de finanzas personales", async (t) => {
+  const url = await startServer(t, { query() { throw new Error("No debe consultar la base"); } });
+  const response = await fetch(url);
+  const page = await response.text();
+  assert.equal(response.status, 200);
+  assert.match(page, /REGISTRO PERSONAL/);
+  assert.doesNotMatch(page, /id="view"|Hogar personal|Datos de prueba/);
 });
 
 test("rechaza meses inválidos y métodos de escritura antes de consultar la base", async (t) => {
@@ -204,13 +213,13 @@ test("no permite registrar sin un único integrante personal activo", async (t) 
   }
 });
 
-test("informa si el hogar de prueba no existe o está duplicado", async (t) => {
-  for (const rows of [[], [{ household_id: 1 }, { household_id: 2 }]]) {
-    const url = await startServer(t, { async query() { return { rows }; } });
-    const response = await fetch(`${url}/api/gastos?mes=2026-11`);
-    assert.equal(response.status, 409);
-    assert.match((await response.json()).error, /exactamente un hogar/);
-  }
+test("no muestra datos de prueba cuando falta una configuración personal", async (t) => {
+  let queries = 0;
+  const url = await startServer(t, { async query() { queries += 1; return { rows: [] }; } });
+  const response = await fetch(`${url}/api/gastos?mes=2026-11`);
+  assert.equal(response.status, 409);
+  assert.match((await response.json()).error, /configuración personal/);
+  assert.equal(queries, 0);
 });
 
 test("un mes sin gastos devuelve total cero", async (t) => {
@@ -218,9 +227,11 @@ test("un mes sin gastos devuelve total cero", async (t) => {
   const url = await startServer(t, {
     async query() {
       call += 1;
-      return { rows: call === 1 ? [{ household_id: 42 }] : [{ total: "0", categories: [], expenses: [] }] };
+      return { rows: call === 1
+        ? [{ household_id: 42, member_id: 3 }]
+        : [{ total: "0", categories: [], expenses: [] }] };
     },
-  });
+  }, { householdId: 42 });
   const response = await fetch(`${url}/api/gastos?mes=2025-01`);
   assert.deepEqual(await response.json(), { month: "2025-01", total: "0", categories: [], expenses: [] });
 });
@@ -612,4 +623,97 @@ test("elimina únicamente aportes creados por la persona personal", async (t) =>
   assert.equal(response.status, 200);
   assert.deepEqual(queries[1].params, [7, 3, "19"]);
   assert.match(queries[1].sql, /sc\.member_id = m\.member_id/);
+});
+
+test("consulta categorías personales activas y archivadas", async (t) => {
+  const queries = [];
+  const categories = [
+    { id: 2, name: "Mascotas", active: true },
+    { id: 5, name: "Viajes", active: false },
+  ];
+  const url = await startServer(t, {
+    async query(sql, params) {
+      queries.push({ sql, params });
+      return queries.length === 1
+        ? { rows: [{ household_id: 7, member_id: 3 }] }
+        : { rows: categories };
+    },
+  }, { householdId: 7 });
+  const response = await fetch(`${url}/api/categorias`);
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { categories });
+  assert.deepEqual(queries[1].params, [7]);
+  assert.match(queries[1].sql, /is_active AS active/);
+  assert.match(queries[1].sql, /kind = 'expense'/);
+});
+
+test("crea, renombra, archiva y restaura categorías personales", async (t) => {
+  const queries = [];
+  const url = await startServer(t, {
+    async query(sql, params) {
+      queries.push({ sql, params });
+      return queries.length % 2
+        ? { rows: [{ household_id: 7, member_id: 3 }] }
+        : { rows: [{ category_id: 8 }] };
+    },
+  }, { householdId: 7 });
+  const write = (method, body) => fetch(`${url}/api/categorias`, {
+    method,
+    headers: { Origin: url, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+  assert.equal((await write("POST", { name: " Mascotas " })).status, 201);
+  assert.deepEqual(queries[1].params, [7, "Mascotas", 3]);
+  assert.match(queries[1].sql, /ON CONFLICT \(household_id, name\) DO NOTHING/);
+
+  assert.equal((await write("PUT", { id: 8, name: "Animales" })).status, 200);
+  assert.deepEqual(queries[3].params, [7, 8, "Animales", 3]);
+  assert.match(queries[3].sql, /NOT EXISTS/);
+
+  assert.equal((await write("PATCH", { id: 8, active: false })).status, 200);
+  assert.deepEqual(queries[5].params, [7, 8, false, 3]);
+  assert.match(queries[5].sql, /SET is_active = \$3/);
+
+  assert.equal((await write("PATCH", { id: 8, active: true })).status, 200);
+  assert.deepEqual(queries[7].params, [7, 8, true, 3]);
+});
+
+test("valida escrituras de categorías y rechaza solicitudes de otros orígenes", async (t) => {
+  const url = await startServer(t, { query() { throw new Error("No debe consultar la base"); } }, { householdId: 7 });
+  const write = (method, body, origin = url) => fetch(`${url}/api/categorias`, {
+    method,
+    headers: { Origin: origin, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  assert.equal((await write("POST", { name: "Mascotas" }, "https://otro-sitio.example")).status, 403);
+  for (const body of [null, {}, { name: " " }, { name: "a".repeat(101) }]) {
+    assert.equal((await write("POST", body)).status, 400);
+  }
+  for (const body of [{ id: 0, name: "Gastos" }, { id: 1.5, name: "Gastos" }, { id: 1, name: " " }]) {
+    assert.equal((await write("PUT", body)).status, 400);
+  }
+  for (const body of [{ id: "1", active: false }, { id: 1 }, { id: 1, active: "false" }]) {
+    assert.equal((await write("PATCH", body)).status, 400);
+  }
+});
+
+test("rechaza categorías duplicadas y limita sus cambios al hogar personal", async (t) => {
+  let call = 0;
+  const url = await startServer(t, {
+    async query() {
+      call += 1;
+      return { rows: call % 2 ? [{ household_id: 7, member_id: 3 }] : [] };
+    },
+  }, { householdId: 7 });
+  const response = await fetch(`${url}/api/categorias`, {
+    method: "POST",
+    headers: { Origin: url, "Content-Type": "application/json" },
+    body: JSON.stringify({ name: "Mascotas" }),
+  });
+  assert.equal(response.status, 409);
+
+  const noMember = await startServer(t, { async query() { return { rows: [] }; }, }, { householdId: 7 });
+  const unavailable = await fetch(`${noMember}/api/categorias`);
+  assert.equal(unavailable.status, 409);
 });

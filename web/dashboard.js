@@ -2,7 +2,6 @@ import { expenseShare } from "./chart.js";
 
 const form = document.querySelector("#month-form");
 const monthInput = document.querySelector("#month");
-const viewInput = document.querySelector("#view");
 const message = document.querySelector("#message");
 const results = document.querySelector("#results");
 const list = document.querySelector("#categories");
@@ -43,6 +42,11 @@ const saveGoalButton = document.querySelector("#save-goal");
 const savingsContributionForm = document.querySelector("#savings-contribution-form");
 const savingsContributionMessage = document.querySelector("#savings-contribution-message");
 const saveContributionButton = document.querySelector("#save-contribution");
+const categoryPanel = document.querySelector("#category-panel");
+const categoryStatus = document.querySelector("#category-status");
+const managedCategories = document.querySelector("#managed-categories");
+const categoryForm = document.querySelector("#category-form");
+const createCategoryButton = document.querySelector("#create-category");
 const formatter = new Intl.NumberFormat("es-CL");
 const percentFormatter = new Intl.NumberFormat("es-CL", { maximumFractionDigits: 2 });
 const reportPanel = document.querySelector("#report-panel");
@@ -62,7 +66,6 @@ const todayText = `${today.getFullYear()}-${String(today.getMonth() + 1).padStar
 monthInput.value = todayText.slice(0, 7);
 expenseForm.elements.date.value = todayText;
 let currentRequest = 0;
-let viewTouched = false;
 let editingId = null;
 let saving = false;
 let deleting = false;
@@ -83,6 +86,8 @@ let savingsGoalsAvailable = false;
 let savingGoal = false;
 let savingContribution = false;
 let reportRequest = 0;
+let categoriesRequest = 0;
+let categorySaving = false;
 
 function formatMoney(value) {
   const [whole, fraction = ""] = value.split(".");
@@ -185,6 +190,105 @@ function resetBudgetForm() {
   updateBudgetForm();
 }
 
+function updateCategoryControls() {
+  createCategoryButton.disabled = categorySaving;
+  for (const control of managedCategories.querySelectorAll("input, button")) {
+    control.disabled = categorySaving || control.dataset.inactive === "true";
+  }
+}
+
+function renderManagedCategories(categories) {
+  managedCategories.replaceChildren();
+  for (const category of categories) {
+    const categoryName = displayName(category.name);
+    const item = document.createElement("li");
+    const status = document.createElement("span");
+    const form = document.createElement("form");
+    const name = document.createElement("input");
+    const rename = document.createElement("button");
+    const toggle = document.createElement("button");
+    item.className = "managed-category";
+    status.className = category.active ? "category-state" : "category-state archived";
+    status.textContent = category.active ? "Activa" : "Archivada";
+    form.className = "category-edit-form";
+    name.type = "text";
+    name.maxLength = 100;
+    name.required = true;
+    name.value = categoryName;
+    name.setAttribute("aria-label", `Nombre de la categoría ${categoryName}`);
+    name.dataset.inactive = String(!category.active);
+    rename.type = "submit";
+    rename.textContent = "Guardar nombre";
+    rename.dataset.inactive = String(!category.active);
+    toggle.type = "button";
+    toggle.className = category.active ? "delete-button" : "edit-button";
+    toggle.textContent = category.active ? "Archivar" : "Restaurar";
+    toggle.setAttribute("aria-label", `${category.active ? "Archivar" : "Restaurar"} categoría ${categoryName}`);
+    form.append(name, rename);
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      if (name.value.trim() !== categoryName) {
+        saveCategory("PUT", { id: category.id, name: name.value });
+      }
+    });
+    toggle.addEventListener("click", () => {
+      if (category.active && !confirm(`¿Archivar "${categoryName}"? Sus gastos y presupuestos anteriores se conservarán.`)) return;
+      saveCategory("PATCH", { id: category.id, active: !category.active });
+    });
+    item.append(status, form, toggle);
+    managedCategories.append(item);
+  }
+  updateCategoryControls();
+}
+
+async function loadCategories() {
+  const requestId = ++categoriesRequest;
+  categoryStatus.textContent = "Cargando categorías...";
+  try {
+    const response = await fetch("/api/categorias");
+    const data = await response.json();
+    if (requestId !== categoriesRequest) return false;
+    if (!response.ok) throw new Error(data.error || "No fue posible consultar las categorías.");
+    renderManagedCategories(data.categories);
+    categoryStatus.textContent = data.categories.length ? "" : "Todavía no tienes categorías personales.";
+    return true;
+  } catch (error) {
+    if (requestId !== categoriesRequest) return false;
+    categoryStatus.textContent = error instanceof Error ? error.message : "No fue posible consultar las categorías.";
+    return false;
+  }
+}
+
+async function saveCategory(method, category) {
+  if (categorySaving) return;
+  categorySaving = true;
+  categoryStatus.textContent = "Guardando categoría...";
+  updateCategoryControls();
+  try {
+    const response = await fetch("/api/categorias", {
+      method,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(category),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "No fue posible guardar la categoría.");
+    if (method === "POST") categoryForm.reset();
+    const [categoriesLoaded, optionsLoaded] = await Promise.all([
+      loadCategories(),
+      loadOptions(),
+    ]);
+    if (displayedBudgetMonth) await loadBudgets(displayedBudgetMonth);
+    categoryStatus.textContent = categoriesLoaded && optionsLoaded
+      ? data.message
+      : "Categoría guardada, pero no se pudo actualizar la página. Vuelve a consultar.";
+  } catch (error) {
+    categoryStatus.textContent = error instanceof Error ? error.message : "No fue posible guardar la categoría.";
+  } finally {
+    categorySaving = false;
+    updateCategoryControls();
+  }
+}
+
 async function loadBudgets(month) {
   const requestId = ++budgetRequest;
   budgetMonth = null;
@@ -204,14 +308,14 @@ async function loadBudgets(month) {
       const name = document.createElement("strong");
       const values = document.createElement("p");
       item.className = "budget-item";
-      name.textContent = displayName(category.category);
+      name.textContent = `${displayName(category.category)}${category.isActive === false ? " · Archivada" : ""}`;
       values.textContent = category.budget === null
         ? `Gastado: ${formatMoney(category.spent)} · Sin presupuesto`
         : `Gastado: ${formatMoney(category.spent)} · Límite: ${formatMoney(category.budget)} · ${category.exceeded ? "Excedido" : "Disponible"}: ${formatMoney(category.difference)}`;
       if (category.exceeded) values.className = "budget-exceeded";
       detail.append(name, values);
       item.append(detail);
-      if (category.budget !== null) {
+      if (category.budget !== null && category.isActive !== false) {
         const edit = document.createElement("button");
         edit.type = "button";
         edit.className = "edit-button";
@@ -539,28 +643,21 @@ async function loadExpenses() {
   const requestId = ++currentRequest;
   ++reportRequest;
   const month = monthInput.value;
-  const view = viewInput.value;
   ++budgetRequest;
   budgetMonth = null;
   displayedBudgetMonth = null;
-  budgetPanel.hidden = view !== "personal";
-  incomeMovementsPanel.hidden = view !== "personal";
-  document.querySelector("#accounts-panel").hidden = view !== "personal";
-  document.querySelector("#income-card").hidden = view !== "personal";
-  savingsPanel.hidden = view !== "personal";
-  if (view !== "personal") ++savingsRequest;
-  reportPanel.hidden = view !== "personal";
+  budgetPanel.hidden = false;
+  categoryPanel.hidden = false;
+  incomeMovementsPanel.hidden = false;
+  document.querySelector("#accounts-panel").hidden = false;
+  document.querySelector("#income-card").hidden = false;
+  savingsPanel.hidden = false;
+  reportPanel.hidden = false;
   updateBudgetForm();
-  document.querySelector("#registration").hidden = view !== "personal";
-  document.querySelector("#income-registration").hidden = view !== "personal";
-  document.querySelector("#transfer-registration").hidden = view !== "personal";
-  document.querySelector("#notice").textContent = view === "demo"
-    ? "Vista de prueba: estos datos son ficticios y están separados de tu hogar personal."
-    : "Hogar personal: los gastos que registres aquí son reales. La aplicación es local y no tiene autenticación.";
   results.hidden = true;
   message.textContent = "Cargando gastos...";
   try {
-    const response = await fetch(`/api/gastos?mes=${encodeURIComponent(month)}&vista=${view}`);
+    const response = await fetch(`/api/gastos?mes=${encodeURIComponent(month)}`);
     const data = await response.json();
     if (requestId !== currentRequest) return false;
     if (!response.ok) throw new Error(data.error || "No fue posible consultar los gastos.");
@@ -618,7 +715,7 @@ async function loadExpenses() {
       amount.className = "movement-amount";
       actions.className = "movement-actions";
       actions.append(amount);
-      if (view === "personal" && expense.editable) {
+      if (expense.editable) {
         const editButton = document.createElement("button");
         editButton.type = "button";
         editButton.className = "edit-button";
@@ -640,16 +737,15 @@ async function loadExpenses() {
     document.querySelector("#movements-empty").hidden = data.expenses.length !== 0;
     message.textContent = "";
     results.hidden = false;
-    if (view === "personal") {
-      displayedBudgetMonth = month;
-      await Promise.all([
-        loadMovements(month),
-        loadBudgets(month),
-        loadSavingsGoals(),
-        loadPersonalReport(month),
-      ]);
-      if (requestId !== currentRequest) return false;
-    }
+    displayedBudgetMonth = month;
+    await Promise.all([
+      loadMovements(month),
+      loadBudgets(month),
+      loadSavingsGoals(),
+      loadPersonalReport(month),
+      loadCategories(),
+    ]);
+    if (requestId !== currentRequest) return false;
     return true;
   } catch (error) {
     if (requestId !== currentRequest) return false;
@@ -672,36 +768,37 @@ async function loadOptions() {
       [transferForm.elements.destinationAccountId, data.accounts],
       [budgetForm.elements.categoryId, data.categories],
     ]) {
+      const selectedValue = select.value;
+      const placeholder = select.options[0]?.textContent ?? "Selecciona una opción";
+      select.replaceChildren(new Option(placeholder, ""));
       for (const value of values) {
         const option = document.createElement("option");
         option.value = value.id;
         option.textContent = value.name ? displayName(value.name) : "";
         select.append(option);
       }
+      if (values.some((value) => String(value.id) === selectedValue)) select.value = selectedValue;
     }
     renderAccounts(data.accounts);
     budgetOptionsAvailable = data.categories.length > 0;
     incomeOptionsAvailable = data.incomeCategories.length > 0;
     updateBudgetForm();
+    saveButton.disabled = saving || !data.accounts.length || !data.categories.length;
     saveIncomeButton.disabled = !data.accounts.length || !incomeOptionsAvailable;
     if (!data.accounts.length || !data.categories.length) {
-      formMessage.textContent = "El hogar necesita una cuenta activa en CLP y categorías de gastos para registrar movimientos.";
-    } else {
-      saveButton.disabled = false;
+      formMessage.textContent = "Para registrar gastos, agrega una cuenta activa en CLP y una categoría de gasto.";
     }
     if (!data.accounts.length || !data.incomeCategories.length) {
-      incomeFormMessage.textContent = "El hogar necesita una cuenta activa en CLP y categorías de ingresos.";
+      incomeFormMessage.textContent = "Para registrar ingresos, agrega una cuenta activa en CLP y una categoría de ingreso.";
     }
     if (data.accounts.length < 2) {
       transferFormMessage.textContent = "Necesitas al menos dos cuentas activas en CLP para transferir dinero.";
     }
-    if (!viewTouched) {
-      viewInput.value = "personal";
-      loadExpenses();
-    }
+    return true;
   } catch (error) {
     formMessage.textContent = error instanceof Error ? error.message : "No fue posible cargar el formulario.";
     budgetFormMessage.textContent = "No fue posible cargar las categorías para configurar presupuestos.";
+    return false;
   }
 }
 
@@ -766,7 +863,6 @@ incomeForm.addEventListener("submit", async (event) => {
     incomeForm.elements.date.value = todayText;
     incomeFormMessage.textContent = "Ingreso registrado correctamente.";
     monthInput.value = date.slice(0, 7);
-    viewInput.value = "personal";
     await loadExpenses();
     await refreshAccounts();
   } catch (error) {
@@ -867,7 +963,6 @@ transferForm.addEventListener("submit", async (event) => {
     transferForm.elements.date.value = todayText;
     transferFormMessage.textContent = "Transferencia registrada correctamente.";
     monthInput.value = date.slice(0, 7);
-    viewInput.value = "personal";
     await loadExpenses();
     await refreshAccounts();
   } catch (error) {
@@ -876,6 +971,13 @@ transferForm.addEventListener("submit", async (event) => {
     savingTransfer = false;
     saveTransferButton.disabled = accounts.length < 2;
   }
+});
+
+categoryForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (categorySaving) return;
+  const values = new FormData(categoryForm);
+  await saveCategory("POST", { name: values.get("name") });
 });
 
 budgetForm.addEventListener("submit", async (event) => {
@@ -963,7 +1065,6 @@ expenseForm.addEventListener("submit", async (event) => {
     formMessage.textContent = isEditing ? "Gasto actualizado correctamente." : "Gasto registrado correctamente.";
     movementStatus.textContent = "";
     monthInput.value = expense.date.slice(0, 7);
-    viewInput.value = "personal";
     await loadExpenses();
     await refreshAccounts();
   } catch (error) {
@@ -982,17 +1083,11 @@ cancelEditButton.addEventListener("click", () => {
 
 form.addEventListener("submit", (event) => {
   event.preventDefault();
-  viewTouched = true;
   movementStatus.textContent = "";
   loadExpenses();
 });
 reportPeriod.addEventListener("change", () => {
-  if (viewInput.value === "personal" && !reportPanel.hidden) loadPersonalReport(monthInput.value);
-});
-viewInput.addEventListener("change", () => {
-  viewTouched = true;
-  movementStatus.textContent = "";
-  loadExpenses();
+  loadPersonalReport(monthInput.value);
 });
 loadExpenses();
 loadOptions();
