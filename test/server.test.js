@@ -293,3 +293,155 @@ test("no sobrescribe presupuestos existentes o cambiados y exige hogar personal"
   const noMember = await startServer(t, { async query() { return { rows: [] }; } }, { householdId: 7 });
   assert.equal((await fetch(`${noMember}/api/presupuestos?mes=2026-11`)).status, 409);
 });
+
+test("registra ingresos solo con cuenta y categoría del hogar personal", async (t) => {
+  const queries = [];
+  const url = await startServer(t, {
+    async query(sql, params) {
+      queries.push({ sql, params });
+      return queries.length === 1
+        ? { rows: [{ household_id: 7, member_id: 3 }] }
+        : { rows: [{ transaction_id: "12" }] };
+    },
+  }, { householdId: 7 });
+  const response = await fetch(`${url}/api/ingresos`, {
+    method: "POST",
+    headers: { Origin: url, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      merchant: " Sueldo ", amount: "1500000", date: "2026-11-15", accountId: 4, categoryId: 6,
+    }),
+  });
+  assert.equal(response.status, 201);
+  assert.deepEqual(queries[1].params, [7, 3, 4, 6, "2026-11-15", "1500000", "Sueldo"]);
+  assert.match(queries[1].sql, /c\.kind = 'income'/);
+  assert.match(queries[1].sql, /'income'/);
+});
+
+test("registra transferencias entre cuentas distintas y del mismo hogar", async (t) => {
+  const queries = [];
+  const url = await startServer(t, {
+    async query(sql, params) {
+      queries.push({ sql, params });
+      return queries.length === 1
+        ? { rows: [{ household_id: 7, member_id: 3 }] }
+        : { rows: [{ transfer_id: "15" }] };
+    },
+  }, { householdId: 7 });
+  const response = await fetch(`${url}/api/transferencias`, {
+    method: "POST",
+    headers: { Origin: url, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      amount: "50000.25", date: "2026-11-15", sourceAccountId: 4, destinationAccountId: 8, note: " Ahorro ",
+    }),
+  });
+  assert.equal(response.status, 201);
+  assert.deepEqual(queries[1].params, [7, 3, 4, 8, "2026-11-15", "50000.25", "Ahorro"]);
+  assert.match(queries[1].sql, /src\.currency = 'CLP'/);
+  assert.match(queries[1].sql, /src\.account_id <> dst\.account_id/);
+});
+
+test("rechaza transferencias a la misma cuenta y solicitudes externas", async (t) => {
+  const url = await startServer(t, { query() { throw new Error("No debe consultar la base"); } }, { householdId: 7 });
+  const transfer = (body, origin = url) => fetch(`${url}/api/transferencias`, {
+    method: "POST",
+    headers: { Origin: origin, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const valid = {
+    amount: "100", date: "2026-11-15", sourceAccountId: 4, destinationAccountId: 8,
+  };
+  assert.equal((await transfer(valid, "https://otro-sitio.example")).status, 403);
+  assert.equal((await transfer({ ...valid, destinationAccountId: 4 })).status, 400);
+  assert.equal((await transfer({ ...valid, amount: "0" })).status, 400);
+});
+
+test("actualiza saldo inicial con control de concurrencia", async (t) => {
+  const queries = [];
+  const url = await startServer(t, {
+    async query(sql, params) {
+      queries.push({ sql, params });
+      return queries.length === 1
+        ? { rows: [{ household_id: 7, member_id: 3 }] }
+        : { rows: [{ account_id: 4 }] };
+    },
+  }, { householdId: 7 });
+  const response = await fetch(`${url}/api/cuentas/saldo-inicial`, {
+    method: "PUT",
+    headers: { Origin: url, "Content-Type": "application/json" },
+    body: JSON.stringify({ accountId: 4, amount: "250000.50", expectedAmount: "0.00" }),
+  });
+  assert.equal(response.status, 200);
+  assert.deepEqual(queries[1].params, [7, 3, 4, "250000.50", "0.00"]);
+  assert.match(queries[1].sql, /a\.opening_balance = \$5::numeric/);
+});
+
+test("lista ingresos y transferencias del mes con saldo de ingresos", async (t) => {
+  const queries = [];
+  const rows = [{
+    month: "2026-11",
+    incomeTotal: "1500000.00",
+    movements: [
+      { id: "transaction-12", type: "income", amount: "1500000.00" },
+      { id: "transfer-15", type: "transfer", amount: "50000.00" },
+    ],
+  }];
+  const url = await startServer(t, {
+    async query(sql, params) {
+      queries.push({ sql, params });
+      return { rows: queries.length === 1 ? [{ household_id: 7, member_id: 3 }] : rows };
+    },
+  }, { householdId: 7 });
+  const response = await fetch(`${url}/api/movimientos?mes=2026-11`);
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { month: "2026-11", ...rows[0] });
+  assert.deepEqual(queries[1].params, [7, 3, "2026-11"]);
+});
+
+test("devuelve saldos de cuenta calculados con saldo inicial y transferencias", async (t) => {
+  const queries = [];
+  const data = {
+    household: "Yo",
+    accounts: [{ id: 4, name: "Cuenta corriente", openingBalance: "1000.00", balance: "800.00" }],
+    categories: [{ id: 5, name: "Hogar" }],
+    incomeCategories: [{ id: 6, name: "Sueldo" }],
+  };
+  const url = await startServer(t, {
+    async query(sql, params) {
+      queries.push({ sql, params });
+      if (queries.length === 1) return { rows: [{ household_id: 7, member_id: 3, name: "Yo" }] };
+      return { rows: [queries.length === 2 ? data.accounts[0] : queries.length === 3 ? data.categories[0] : data.incomeCategories[0]] };
+    },
+  }, { householdId: 7 });
+  const response = await fetch(`${url}/api/opciones`);
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), data);
+  assert.deepEqual(queries[1].params, [7, 3]);
+  assert.match(queries[1].sql, /a\.opening_balance/);
+  assert.match(queries[1].sql, /finance\.account_transfer/);
+  assert.match(queries[1].sql, /t\.tx_date <= CURRENT_DATE/);
+});
+
+test("elimina ingresos y transferencias solo del integrante del hogar", async (t) => {
+  const queries = [];
+  const url = await startServer(t, {
+    async query(sql, params) {
+      queries.push({ sql, params });
+      return queries.length % 2
+        ? { rows: [{ household_id: 7, member_id: 3 }] }
+        : { rows: [{ id: "15" }] };
+    },
+  }, { householdId: 7 });
+  for (const [path, index, sql] of [
+    ["/api/transferencias", 1, /DELETE FROM finance\.account_transfer/],
+    ["/api/ingresos", 3, /t\.type = 'income'/],
+  ]) {
+    const response = await fetch(`${url}${path}`, {
+      method: "DELETE",
+      headers: { Origin: url, "Content-Type": "application/json" },
+      body: JSON.stringify({ id: "15" }),
+    });
+    assert.equal(response.status, 200);
+    assert.deepEqual(queries[index].params, [7, 3, "15"]);
+    assert.match(queries[index].sql, sql);
+  }
+});
