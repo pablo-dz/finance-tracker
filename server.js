@@ -209,7 +209,8 @@ export function createDashboardServer(pool, { householdId = null } = {}) {
 
       if (request.method !== "GET") {
         const allow = url.pathname === "/api/gastos" ? "GET, POST, PUT, DELETE"
-          : url.pathname === "/api/presupuestos" ? "GET, POST, PUT" : "GET";
+          : url.pathname === "/api/presupuestos" ? "GET, POST, PUT"
+            : url.pathname === "/api/reportes" ? "GET" : "GET";
         response.writeHead(405, { Allow: allow });
         response.end();
         return;
@@ -270,6 +271,62 @@ export function createDashboardServer(pool, { householdId = null } = {}) {
           [member.household_id, member.member_id, month],
         );
         sendJson(response, 200, { month, categories: result.rows });
+        return;
+      }
+
+      if (url.pathname === "/api/reportes") {
+        const month = url.searchParams.get("mes");
+        const months = url.searchParams.get("meses");
+        if (!validMonth(month) || url.searchParams.getAll("mes").length !== 1
+          || !["3", "6", "12"].includes(months) || url.searchParams.getAll("meses").length !== 1) {
+          sendJson(response, 400, { error: "Selecciona un mes y un período válido para el reporte." });
+          return;
+        }
+        const member = await personalMember(pool, householdId);
+        if (!member) {
+          sendJson(response, 409, { error: "Configura un hogar personal en CLP con un único integrante activo." });
+          return;
+        }
+        const result = await pool.query(
+          `WITH period AS (
+             SELECT ($3 || '-01')::date AS end_month,
+                    (($3 || '-01')::date - (($4::int - 1) * interval '1 month'))::date AS start_month
+           ), months AS (
+             SELECT generate_series(p.start_month, p.end_month, interval '1 month')::date AS month_start
+             FROM period p
+           ), filtered AS (
+             SELECT date_trunc('month', t.tx_date)::date AS month_start,
+                    COALESCE(c.name, 'Sin categoría') AS category, t.amount
+             FROM finance.transactions t
+             JOIN finance.account a ON a.account_id = t.account_id
+               AND a.household_id = t.household_id AND a.currency = 'CLP'
+             LEFT JOIN finance.category c ON c.category_id = t.category_id
+               AND c.household_id = t.household_id AND c.kind = 'expense'
+             CROSS JOIN period p
+             WHERE t.household_id = $1 AND t.member_id = $2 AND t.type = 'expense'
+               AND t.tx_date >= p.start_month
+               AND t.tx_date < (p.end_month + interval '1 month')
+           ), monthly AS (
+             SELECT m.month_start, COALESCE(SUM(f.amount), 0) AS amount, COUNT(f.amount)::int AS count
+             FROM months m
+             LEFT JOIN filtered f ON f.month_start = m.month_start
+             GROUP BY m.month_start
+           ), category_totals AS (
+             SELECT category, SUM(amount) AS amount, COUNT(*)::int AS count
+             FROM filtered
+             GROUP BY category
+           )
+           SELECT COALESCE((SELECT json_agg(json_build_object(
+                    'month', to_char(month_start, 'YYYY-MM'), 'total', amount::text, 'count', count
+                  ) ORDER BY month_start) FROM monthly), '[]'::json) AS monthly,
+                  COALESCE((SELECT json_agg(json_build_object(
+                    'category', category, 'total', amount::text, 'count', count
+                  ) ORDER BY amount DESC, category) FROM category_totals), '[]'::json) AS categories,
+                  COALESCE((SELECT SUM(amount)::text FROM monthly), '0') AS total,
+                  COALESCE((SELECT ROUND(AVG(amount), 2)::text FROM monthly), '0.00') AS average`,
+          [member.household_id, member.member_id, month, months],
+        );
+        sendJson(response, 200, { month, months: Number(months), ...result.rows[0] });
         return;
       }
 
