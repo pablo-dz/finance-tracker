@@ -10,6 +10,7 @@ Proyecto para entender ingresos, gastos, transferencias, presupuestos y metas de
 - `db/migrations/004_account_balances_and_transfers.sql`: saldo inicial por cuenta y registro de transferencias.
 - `db/migrations/005_savings_goal_contributions.sql`: registro de aportes y avance de metas de ahorro.
 - `db/migrations/006_personal_category_archiving.sql`: permite archivar categorías sin borrar su historial.
+- `db/migrations/007_user_accounts.sql`: cuentas locales, sesiones y asociación de perfiles personales a usuarios.
 - `db/seeds/001_demo.sql`: datos **ficticios**, separados de los datos reales.
 
 ## Preparar una base nueva
@@ -25,9 +26,10 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/003_reference_data.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/004_account_balances_and_transfers.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/005_savings_goal_contributions.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/006_personal_category_archiving.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/007_user_accounts.sql
 ```
 
-Las migraciones existentes no son repetibles: **no las vuelvas a ejecutar sobre una base ya preparada**. Si ya aplicaste las migraciones 001–003, ejecuta la 004, 005 y 006 en ese orden. Si ya aplicaste la 004, ejecuta solo la 005 y la 006; si ya aplicaste la 005, ejecuta solo la 006. No hay un mecanismo automático que registre qué migraciones se aplicaron.
+Las migraciones existentes no son repetibles: **no las vuelvas a ejecutar sobre una base ya preparada**. Si ya aplicaste la migración 006, ejecuta solo la 007. La migración 007 no vincula los perfiles existentes a ninguna cuenta: los nuevos usuarios empiezan con un perfil personal nuevo. No hay un mecanismo automático que registre qué migraciones se aplicaron.
 
 ## Datos ficticios para pruebas manuales (opcional)
 
@@ -73,28 +75,18 @@ Usa `\q` para salir de `psql`. La diferencia entre ingresos y gastos no equivale
 
 ## Dashboard personal
 
-Necesitas Node.js 22 o superior y npm. Con PostgreSQL iniciado y tu perfil personal configurado, ejecuta desde la raíz del proyecto:
+Necesitas Node.js 22 o superior y npm. Con PostgreSQL iniciado y las migraciones aplicadas, ejecuta desde la raíz del proyecto:
 
 ```bash
 npm install
-PGDATABASE=finance_tracker FINANCE_HOUSEHOLD_ID=1 npm start
+PGDATABASE=finance_tracker npm start
 ```
 
-Reemplaza `finance_tracker` y `1` por el nombre de tu base y el ID de tu perfil personal. Puedes consultar los perfiles con `psql -d finance_tracker -c "SELECT household_id, name FROM finance.household;"`. El perfil debe usar CLP y tener una sola persona activa, categorías de gastos e ingresos y al menos una cuenta activa en CLP. Para transferir entre cuentas necesitas dos cuentas activas. La aplicación no usa el conjunto ficticio.
-
-Si tu perfil aún no tiene una cuenta, consulta el ID de la persona y crea una cuenta asociada. Por ejemplo, **sustituye ambos IDs** por los de tu base antes de ejecutar:
-
-```sql
-SELECT member_id, household_id, name FROM finance.member WHERE is_active;
-INSERT INTO finance.account (household_id, member_id, name, type, currency)
-VALUES (1, 1, 'Cuenta personal', 'checking', 'CLP');
-```
-
-La creación de esta cuenta se realiza una sola vez; la aplicación no la crea automáticamente. Ejecuta las consultas desde `psql` y verifica que la persona pertenezca al perfil seleccionado.
+Reemplaza `finance_tracker` por el nombre de tu base. Al abrir la página, crea una cuenta con tu correo y contraseña. La aplicación crea un perfil personal nuevo, una cuenta principal y categorías iniciales asociados a esa cuenta. Los perfiles y movimientos que ya existían antes de aplicar la migración 007 quedan sin asociar y no se muestran; no se copian ni se eliminan.
 
 También puedes configurar la conexión con `DATABASE_URL`, o con las variables de PostgreSQL `PGHOST`, `PGPORT`, `PGUSER` y `PGPASSWORD`. No guardes contraseñas en archivos versionados.
 
-Abre [http://127.0.0.1:3000](http://127.0.0.1:3000). Si el puerto 3000 está ocupado, puedes indicar otro, por ejemplo `PORT=3001 PGDATABASE=finance_tracker FINANCE_HOUSEHOLD_ID=1 npm start`, y abrir `http://127.0.0.1:3001`. La página muestra tus finanzas personales: consulta un mes, registra, edita y elimina gastos, registra ingresos y transferencias, consulta saldos y movimientos, y administra presupuestos, metas de ahorro y categorías. Para editar un gasto usa el botón junto al movimiento; la edición solo admite pesos enteros. Para eliminarlo, confirma la eliminación permanente. Para corregir un ingreso o transferencia, elimínalo y vuelve a registrarlo. Las transferencias mueven saldo entre cuentas y no cuentan como ingreso ni gasto. En «Cuentas» puedes configurar el saldo inicial de cada cuenta; el saldo actual suma ese punto de partida, los ingresos, resta los gastos y aplica las transferencias registradas hasta hoy. El saldo inicial se entiende como anterior a todos los movimientos guardados. La aplicación requiere `FINANCE_HOUSEHOLD_ID` para abrir el perfil configurado y no tiene una vista alternativa de prueba. Para detener el servidor, presiona `Ctrl+C`.
+Abre [http://127.0.0.1:3000](http://127.0.0.1:3000). Si el puerto 3000 está ocupado, puedes indicar otro, por ejemplo `PORT=3001 PGDATABASE=finance_tracker npm start`, y abrir `http://127.0.0.1:3001`. Inicia sesión para consultar tus finanzas personales: gastos, ingresos, transferencias, saldos, presupuestos, metas y categorías. La edición de gastos solo admite pesos enteros. Las eliminaciones son permanentes; para corregir un ingreso o transferencia, elimínalo y vuelve a registrarlo. Las transferencias mueven saldo entre cuentas y no cuentan como ingreso ni gasto. En «Cuentas» puedes configurar el saldo inicial; se considera anterior a todos los movimientos guardados. Para detener el servidor, presiona `Ctrl+C`.
 
 El reporte «Evolución de tus gastos» compara los últimos 3, 6 o 12 meses hasta el mes seleccionado. Muestra el total y promedio mensual, la evolución por mes y el gasto acumulado por categoría. Los meses sin movimientos aparecen con total cero. El reporte incluye únicamente gastos personales de cuentas en CLP.
 
@@ -104,7 +96,7 @@ En «Mis categorías» puedes crear y renombrar categorías personales, y archiv
 
 También puedes crear metas de ahorro con un monto objetivo y una fecha opcional, y registrar aportes para consultar el avance y el historial. Los aportes son solo seguimiento de la meta: **no modifican saldos de cuentas ni registran gastos o transferencias**. Puedes eliminar un aporte si lo registraste por error.
 
-La aplicación es local y no tiene autenticación ni separación segura entre usuarios: cualquier persona con acceso al equipo puede usarla o acceder a la base. No la expongas a internet ni a redes compartidas. El servidor escucha únicamente en `127.0.0.1`. Respalda regularmente tu base de datos.
+Las cuentas usan contraseñas derivadas con `scrypt` y sesiones locales con cookies `HttpOnly`. No hay verificación de correo ni recuperación de contraseña. El servidor escucha únicamente en `127.0.0.1`; no lo expongas a internet ni a redes compartidas. El usuario configurado para conectarse a PostgreSQL es una credencial técnica distinta de la cuenta con la que inicias sesión en la aplicación. Respalda regularmente tu base de datos.
 
 Para ejecutar las pruebas:
 
@@ -114,6 +106,6 @@ npm test
 
 ## Próximos pasos
 
-Más adelante, la colaboración con otras personas requerirá cuentas de usuario, autenticación y permisos; agregar integrantes a las tablas por sí solo no proporciona acceso seguro.
+Más adelante, compartir un hogar entre varias cuentas requerirá invitaciones y permisos; esta primera etapa mantiene un perfil personal por usuario.
 
 Trabaja en ramas de funcionalidad y abre un pull request hacia `main`.
