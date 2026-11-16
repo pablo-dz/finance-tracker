@@ -7,6 +7,7 @@ Proyecto para entender ingresos, gastos y presupuestos en pesos chilenos (CLP). 
 - `db/migrations/001_schema.sql`: tablas de hogares, integrantes, cuentas, categorías, movimientos, presupuestos y metas.
 - `db/migrations/002_bi_views.sql`: vistas de consulta que podrán servir como base para el dashboard web. Se conserva el nombre original de la migración.
 - `db/migrations/003_reference_data.sql`: hogar, integrante y categorías iniciales.
+- `db/migrations/005_savings_goal_contributions.sql`: registro de aportes y avance de metas de ahorro.
 - `db/seeds/001_demo.sql`: datos **ficticios**, separados de los datos reales.
 
 ## Preparar una base nueva
@@ -19,9 +20,10 @@ En una base **nueva y vacía**, ejecuta las migraciones en orden desde la raíz 
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/001_schema.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/002_bi_views.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/003_reference_data.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/005_savings_goal_contributions.sql
 ```
 
-Las migraciones existentes no son repetibles: **no las vuelvas a ejecutar sobre una base ya preparada**. Si ya las ejecutaste, continúa con el siguiente paso. No hay un mecanismo automático que registre qué migraciones se aplicaron.
+Las migraciones existentes no son repetibles: **no las vuelvas a ejecutar sobre una base ya preparada**. Si ya aplicaste las migraciones 001–003, ejecuta solo la migración 005. Si también instalaste la migración 004 de cuentas y transferencias, aplícala antes de la 005. No hay un mecanismo automático que registre qué migraciones se aplicaron.
 
 ## Cargar datos de prueba
 
@@ -33,7 +35,7 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/seeds/001_demo.sql
 
 El script crea un hogar llamado `[DEMO] Hogar de prueba`, una persona y una cuenta ficticias, movimientos y presupuestos del mes actual y los dos anteriores, y una meta de ahorro. Los movimientos se crean solo hasta la fecha actual; por eso un mes recién comenzado puede tener pocos registros. Los valores son ejemplos, no recomendaciones financieras.
 
-El hogar de prueba tiene categorías propias y no modifica las de tu hogar. Si el nombre ya existe, el script termina con error sin insertar nada: no lo ejecutes nuevamente para actualizar los datos. La meta es solo un objetivo; el esquema aún no registra aportes ni calcula su avance.
+El hogar de prueba tiene categorías propias y no modifica las de tu hogar. Si el nombre ya existe, el script termina con error sin insertar nada: no lo ejecutes nuevamente para actualizar los datos. La meta ficticia es solo un objetivo y no incluye aportes de ejemplo.
 
 ## Consultar los ejemplos
 
@@ -91,6 +93,8 @@ También puedes configurar la conexión con `DATABASE_URL`, o con las variables 
 Abre [http://127.0.0.1:3000](http://127.0.0.1:3000). Si el puerto 3000 está ocupado, puedes indicar otro, por ejemplo `PORT=3001 PGDATABASE=finance_tracker FINANCE_HOUSEHOLD_ID=1 npm start`, y abrir `http://127.0.0.1:3001`. Selecciona la vista personal para registrar, editar y eliminar tus gastos, y consultar el total mensual, el gráfico y la lista de movimientos. Para editar, usa el botón junto al movimiento y guarda los cambios o cancela; la edición solo admite pesos enteros. Para eliminar, usa el botón junto al gasto y confirma: la eliminación es permanente. La vista de prueba permanece separada y es de solo lectura. Sin `FINANCE_HOUSEHOLD_ID` puedes consultar la demo, pero no modificar gastos. Para detener el servidor, presiona `Ctrl+C`.
 
 En la vista personal, consulta un mes y crea un presupuesto para cada categoría que quieras controlar. El límite se configura por separado para cada mes, en pesos enteros; también puede ser cero. Las categorías sin límite aparecen como «Sin presupuesto». La comparación muestra el gasto personal de ese mes en CLP, el límite y lo disponible o excedido, conservando los centavos de gastos existentes. No incluye ingresos, transferencias, gastos sin categoría ni gastos en otras monedas; el resumen general agrupa gastos del hogar y puede diferir. Para cambiar un límite usa «Cambiar límite»; si otra operación lo cambió desde que se consultó, vuelve a consultar antes de editarlo. Los presupuestos compartidos del hogar no se muestran ni modifican.
+
+En la vista personal también puedes crear metas de ahorro con un monto objetivo y una fecha opcional, y registrar aportes para consultar el avance y el historial. Los aportes son solo seguimiento de la meta: **no modifican saldos de cuentas ni registran gastos o transferencias**. Puedes eliminar un aporte si lo registraste por error.
 
 La aplicación es local y no tiene autenticación ni separación segura entre usuarios: cualquier persona con acceso al equipo puede usarla o acceder a la base. No la expongas a internet ni a redes compartidas. El servidor escucha únicamente en `127.0.0.1`. Respalda regularmente tu base de datos.
 
