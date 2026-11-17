@@ -526,6 +526,58 @@ test("registra transferencias entre cuentas distintas y del mismo hogar", async 
   assert.match(queries[1].sql, /src\.account_id <> dst\.account_id/);
 });
 
+test("edita ingresos y transferencias personales conservando su identificador", async (t) => {
+  const queries = [];
+  const url = await startServer(t, {
+    async query(sql, params) {
+      queries.push({ sql, params });
+      return queries.length % 2
+        ? { rows: [{ household_id: 7, member_id: 3 }] }
+        : { rows: [{ id: "9007199254740993" }] };
+    },
+  }, { householdId: 7 });
+  const cases = [
+    ["/api/ingresos", { id: "9007199254740993", merchant: " Sueldo ", amount: "1500", date: "2026-11-15", accountId: 4, categoryId: 6 },
+      [7, 3, 4, 6, "2026-11-15", "1500", "Sueldo", "9007199254740993"], /t\.type = 'income'/],
+    ["/api/transferencias", { id: "9007199254740993", amount: "0.25", date: "2026-11-16", sourceAccountId: 4, destinationAccountId: 8, note: " Ahorro " },
+      [7, 3, 4, 8, "2026-11-16", "0.25", "Ahorro", "9007199254740993"], /tr\.member_id = m\.member_id/],
+  ];
+  for (const [path, body, parameters, constraint] of cases) {
+    const response = await fetch(`${url}${path}`, {
+      method: "PUT", headers: { Origin: url, "Content-Type": "application/json" }, body: JSON.stringify(body),
+    });
+    assert.equal(response.status, 200);
+    const query = queries.at(-1);
+    assert.deepEqual(query.params, parameters);
+    assert.match(query.sql, constraint);
+    assert.match(query.sql, /household_id = h\.household_id/);
+  }
+});
+
+test("valida ediciones y rechaza movimientos o cuentas no disponibles", async (t) => {
+  const url = await startServer(t, {
+    async query(sql) {
+      return { rows: sql.includes("SELECT h.household_id, h.name, m.member_id")
+        ? [{ household_id: 7, member_id: 3 }] : [] };
+    },
+  }, { householdId: 7 });
+  const income = { id: "1", merchant: "Sueldo", amount: "1500", date: "2026-11-15", accountId: 4, categoryId: 6 };
+  const transfer = { id: "1", amount: "50.25", date: "2026-11-16", sourceAccountId: 4, destinationAccountId: 8 };
+  const put = (path, body, origin = url) => fetch(`${url}${path}`, {
+    method: "PUT", headers: { Origin: origin, "Content-Type": "application/json" }, body: JSON.stringify(body),
+  });
+  for (const [path, body] of [["/api/ingresos", income], ["/api/transferencias", transfer]]) {
+    assert.equal((await put(path, body, "https://otro-sitio.example")).status, 403);
+    for (const id of [1, "0", "9223372036854775808"]) {
+      assert.equal((await put(path, { ...body, id })).status, 400);
+    }
+    assert.equal((await put(path, body)).status, 400);
+  }
+  assert.equal((await put("/api/ingresos", { ...income, amount: "1.25" })).status, 400);
+  assert.equal((await put("/api/transferencias", { ...transfer, destinationAccountId: 4 })).status, 400);
+  assert.equal((await put("/api/transferencias", { ...transfer, amount: "0.00" })).status, 400);
+});
+
 test("rechaza transferencias a la misma cuenta y solicitudes externas", async (t) => {
   const url = await startServer(t, { query() { throw new Error("No debe consultar la base"); } }, { householdId: 7 });
   const transfer = (body, origin = url) => fetch(`${url}/api/transferencias`, {

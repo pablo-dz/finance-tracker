@@ -250,7 +250,7 @@
     </section>
     <section class="panel" id="income-registration">
       <p class="eyebrow">MOVIMIENTO ENTRE CUENTAS</p>
-      <h2>Registrar ingreso</h2>
+      <h2 id="income-form-title">Registrar ingreso</h2>
       <form id="income-form">
         <div class="form-grid">
           <label>Descripción
@@ -270,12 +270,15 @@
           </label>
         </div>
         <p id="income-form-message" role="status" aria-live="polite"></p>
-        <button id="save-income" type="submit" disabled>Guardar ingreso</button>
+        <div class="form-actions">
+          <button id="save-income" type="submit" disabled>Guardar ingreso</button>
+          <button id="cancel-income-edit" class="secondary-button" type="button" hidden>Cancelar edición</button>
+        </div>
       </form>
     </section>
     <section class="panel" id="transfer-registration">
       <p class="eyebrow">MOVIMIENTO ENTRE CUENTAS</p>
-      <h2>Transferir entre cuentas</h2>
+      <h2 id="transfer-form-title">Transferir entre cuentas</h2>
       <form id="transfer-form">
         <div class="form-grid">
           <label>Monto en CLP
@@ -295,7 +298,10 @@
           </label>
         </div>
         <p id="transfer-form-message" role="status" aria-live="polite"></p>
-        <button id="save-transfer" type="submit" disabled>Guardar transferencia</button>
+        <div class="form-actions">
+          <button id="save-transfer" type="submit" disabled>Guardar transferencia</button>
+          <button id="cancel-transfer-edit" class="secondary-button" type="button" hidden>Cancelar edición</button>
+        </div>
       </form>
     </section>
     </div>

@@ -217,7 +217,7 @@ function validIncome(body) {
 function validTransfer(body) {
   return body && typeof body === "object" && !Array.isArray(body)
     && validDate(body.date)
-    && typeof body.amount === "string" && /^[1-9]\d{0,11}(?:\.\d{1,2})?$/.test(body.amount)
+    && typeof body.amount === "string" && /^(?:[1-9]\d{0,11}(?:\.\d{1,2})?|0\.(?:0[1-9]|[1-9]\d?))$/.test(body.amount)
     && Number.isSafeInteger(body.sourceAccountId) && body.sourceAccountId > 0 && body.sourceAccountId <= 2147483647
     && Number.isSafeInteger(body.destinationAccountId) && body.destinationAccountId > 0
     && body.destinationAccountId <= 2147483647 && body.sourceAccountId !== body.destinationAccountId
@@ -342,9 +342,9 @@ export function createDashboardServer(pool, { authenticate = (request) => resolv
       const householdId = session?.householdId ?? null;
       const expenseWrite = url.pathname === "/api/gastos" && ["POST", "PUT", "DELETE"].includes(request.method);
       const budgetWrite = url.pathname === "/api/presupuestos" && ["POST", "PUT"].includes(request.method);
-      const incomeWrite = url.pathname === "/api/ingresos" && request.method === "POST";
+      const incomeWrite = url.pathname === "/api/ingresos" && ["POST", "PUT"].includes(request.method);
       const incomeDelete = url.pathname === "/api/ingresos" && request.method === "DELETE";
-      const transferWrite = url.pathname === "/api/transferencias" && request.method === "POST";
+      const transferWrite = url.pathname === "/api/transferencias" && ["POST", "PUT"].includes(request.method);
       const transferDelete = url.pathname === "/api/transferencias" && request.method === "DELETE";
       const openingBalanceWrite = url.pathname === "/api/cuentas/saldo-inicial" && request.method === "PUT";
       const savingsGoalWrite = url.pathname === "/api/metas" && request.method === "POST";
@@ -402,11 +402,11 @@ export function createDashboardServer(pool, { authenticate = (request) => resolv
           sendJson(response, 400, { error: "Revisa la descripción, el monto entero en CLP, la fecha, la categoría y la cuenta." });
           return;
         }
-        if (incomeWrite && !validIncome(expense)) {
+        if (incomeWrite && (!validIncome(expense) || (request.method === "PUT" && !validTransactionId(expense.id)))) {
           sendJson(response, 400, { error: "Revisa la descripción, el monto, la fecha, la categoría y la cuenta del ingreso." });
           return;
         }
-        if (transferWrite && !validTransfer(expense)) {
+        if (transferWrite && (!validTransfer(expense) || (request.method === "PUT" && !validTransactionId(expense.id)))) {
           sendJson(response, 400, { error: "Revisa el monto, la fecha y las cuentas de origen y destino de la transferencia." });
           return;
         }
@@ -552,7 +552,8 @@ export function createDashboardServer(pool, { authenticate = (request) => resolv
           return;
         }
         if (incomeWrite) {
-          const result = await pool.query(
+          const parameters = [member.household_id, member.member_id, expense.accountId, expense.categoryId, expense.date, expense.amount, expense.merchant.trim()];
+          const result = request.method === "POST" ? await pool.query(
             `INSERT INTO finance.transactions
                (household_id, member_id, account_id, category_id, tx_date, amount, type, merchant)
              SELECT h.household_id, m.member_id, a.account_id, c.category_id, $5::date, $6::numeric, 'income', $7
@@ -564,17 +565,35 @@ export function createDashboardServer(pool, { authenticate = (request) => resolv
              WHERE h.household_id = $1 AND h.base_currency = 'CLP' AND h.name <> '[DEMO] Hogar de prueba'
                AND (SELECT count(*) FROM finance.member WHERE household_id = h.household_id AND is_active) = 1
              RETURNING transaction_id::text`,
-            [member.household_id, member.member_id, expense.accountId, expense.categoryId, expense.date, expense.amount, expense.merchant.trim()],
+            parameters,
+          ) : await pool.query(
+            `UPDATE finance.transactions t
+             SET account_id = a.account_id, category_id = c.category_id, tx_date = $5::date,
+                 amount = $6::numeric, merchant = $7
+             FROM finance.household h, finance.member m, finance.account a, finance.category c
+             WHERE h.household_id = $1 AND h.base_currency = 'CLP' AND h.name <> '[DEMO] Hogar de prueba'
+               AND m.household_id = h.household_id AND m.member_id = $2 AND m.is_active
+               AND a.household_id = h.household_id AND a.account_id = $3
+               AND a.is_active AND a.currency = 'CLP' AND (a.member_id IS NULL OR a.member_id = m.member_id)
+               AND c.household_id = h.household_id AND c.category_id = $4 AND c.kind = 'income'
+               AND t.transaction_id = $8::bigint AND t.household_id = h.household_id
+               AND t.member_id = m.member_id AND t.type = 'income' AND t.amount = trunc(t.amount)
+               AND (SELECT count(*) FROM finance.member WHERE household_id = h.household_id AND is_active) = 1
+             RETURNING t.transaction_id::text`,
+            [...parameters, expense.id],
           );
           if (result.rows.length !== 1) {
-            sendJson(response, 400, { error: "La cuenta o categoría de ingreso no pertenece al hogar personal o no está disponible." });
+            sendJson(response, 400, { error: "El ingreso, la cuenta o la categoría no pertenece a tu configuración personal o ya no está disponible." });
             return;
           }
-          sendJson(response, 201, { message: "Ingreso registrado correctamente." });
+          sendJson(response, request.method === "POST" ? 201 : 200, {
+            message: request.method === "POST" ? "Ingreso registrado correctamente." : "Ingreso actualizado correctamente.",
+          });
           return;
         }
         if (transferWrite) {
-          const result = await pool.query(
+          const parameters = [member.household_id, member.member_id, expense.sourceAccountId, expense.destinationAccountId, expense.date, expense.amount, expense.note?.trim() ?? ""];
+          const result = request.method === "POST" ? await pool.query(
             `INSERT INTO finance.account_transfer
                (household_id, member_id, source_account_id, destination_account_id, tx_date, amount, note)
              SELECT h.household_id, m.member_id, src.account_id, dst.account_id,
@@ -590,13 +609,31 @@ export function createDashboardServer(pool, { authenticate = (request) => resolv
                AND src.account_id <> dst.account_id
                AND (SELECT count(*) FROM finance.member WHERE household_id = h.household_id AND is_active) = 1
              RETURNING transfer_id::text`,
-            [member.household_id, member.member_id, expense.sourceAccountId, expense.destinationAccountId, expense.date, expense.amount, expense.note?.trim() ?? ""],
+            parameters,
+          ) : await pool.query(
+            `UPDATE finance.account_transfer tr
+             SET source_account_id = src.account_id, destination_account_id = dst.account_id,
+                 tx_date = $5::date, amount = $6::numeric, note = NULLIF(BTRIM($7), '')
+             FROM finance.household h, finance.member m, finance.account src, finance.account dst
+             WHERE h.household_id = $1 AND h.base_currency = 'CLP' AND h.name <> '[DEMO] Hogar de prueba'
+               AND m.household_id = h.household_id AND m.member_id = $2 AND m.is_active
+               AND src.household_id = h.household_id AND src.account_id = $3
+               AND src.is_active AND src.currency = 'CLP' AND (src.member_id IS NULL OR src.member_id = m.member_id)
+               AND dst.household_id = h.household_id AND dst.account_id = $4
+               AND dst.is_active AND dst.currency = src.currency AND (dst.member_id IS NULL OR dst.member_id = m.member_id)
+               AND src.account_id <> dst.account_id
+               AND tr.transfer_id = $8::bigint AND tr.household_id = h.household_id AND tr.member_id = m.member_id
+               AND (SELECT count(*) FROM finance.member WHERE household_id = h.household_id AND is_active) = 1
+             RETURNING tr.transfer_id::text`,
+            [...parameters, expense.id],
           );
           if (result.rows.length !== 1) {
-            sendJson(response, 400, { error: "Las cuentas de origen y destino deben estar activas, ser distintas y pertenecer al hogar personal." });
+            sendJson(response, 400, { error: "La transferencia o sus cuentas no pertenecen a tu configuración personal o ya no están disponibles." });
             return;
           }
-          sendJson(response, 201, { message: "Transferencia registrada correctamente." });
+          sendJson(response, request.method === "POST" ? 201 : 200, {
+            message: request.method === "POST" ? "Transferencia registrada correctamente." : "Transferencia actualizada correctamente.",
+          });
           return;
         }
         if (savingsGoalWrite) {
@@ -754,7 +791,7 @@ export function createDashboardServer(pool, { authenticate = (request) => resolv
       if (request.method !== "GET") {
         const allow = url.pathname === "/api/gastos" ? "GET, POST, PUT, DELETE"
           : url.pathname === "/api/presupuestos" ? "GET, POST, PUT"
-            : url.pathname === "/api/ingresos" || url.pathname === "/api/transferencias" ? "GET, POST, DELETE"
+            : url.pathname === "/api/ingresos" || url.pathname === "/api/transferencias" ? "GET, POST, PUT, DELETE"
               : url.pathname === "/api/cuentas/saldo-inicial" ? "GET, PUT"
                 : url.pathname === "/api/metas" ? "GET, POST"
                   : url.pathname === "/api/metas/aportes" ? "POST, DELETE"
@@ -842,6 +879,9 @@ export function createDashboardServer(pool, { authenticate = (request) => resolv
                'type', t.type,
                'description', COALESCE(NULLIF(BTRIM(t.merchant), ''), NULLIF(BTRIM(t.note), ''), 'Sin descripción'),
                'amount', t.amount::text,
+               'merchant', t.merchant,
+               'accountId', t.account_id,
+               'categoryId', t.category_id,
                'category', c.name,
                'account', a.name
              ) AS movement, t.tx_date AS sort_date, t.transaction_id AS sort_id, t.type, t.amount
@@ -857,6 +897,9 @@ export function createDashboardServer(pool, { authenticate = (request) => resolv
                'type', 'transfer',
                'description', COALESCE(NULLIF(BTRIM(tr.note), ''), 'Transferencia'),
                'amount', tr.amount::text,
+               'note', tr.note,
+               'sourceAccountId', tr.source_account_id,
+               'destinationAccountId', tr.destination_account_id,
                'category', NULL,
                'account', source.name,
                'destinationAccount', destination.name
