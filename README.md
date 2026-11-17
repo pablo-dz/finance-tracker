@@ -2,7 +2,16 @@
 
 Proyecto para entender ingresos, gastos, transferencias, presupuestos y metas de ahorro en pesos chilenos (CLP). La aplicación permite registrar y revisar las finanzas personales en una página web local. La colaboración con otras personas queda para una etapa futura.
 
-## Lo que existe
+## Estructura del proyecto
+
+- `backend/`: API y servidor del dashboard en Python.
+- `frontend/`: interfaz web en HTML, CSS y JavaScript.
+- `frontend/modules/`: módulos de autenticación, movimientos, planificación, ahorro y reportes.
+- `tests/backend/` y `tests/frontend/`: pruebas del backend y de la interfaz.
+- `db/migrations/`: esquema y migraciones de PostgreSQL.
+- `db/seeds/`: datos ficticios opcionales para pruebas manuales.
+
+## Base de datos
 
 - `db/migrations/001_schema.sql`: tablas de hogares, integrantes, cuentas, categorías, movimientos, presupuestos y metas.
 - `db/migrations/002_bi_views.sql`: vistas de consulta que podrán servir como base para el dashboard web. Se conserva el nombre original de la migración.
@@ -75,10 +84,17 @@ Usa `\q` para salir de `psql`. La diferencia entre ingresos y gastos no equivale
 
 ## Dashboard personal
 
-Necesitas Node.js 22 o superior y npm. Con PostgreSQL iniciado y las migraciones aplicadas, ejecuta desde la raíz del proyecto:
+Necesitas Python 3.10 o superior, Node.js 22 o superior y npm. Con PostgreSQL iniciado y las migraciones aplicadas, prepara el entorno una sola vez desde la raíz del proyecto:
 
 ```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install -r backend/requirements-test.txt
 npm install
+```
+
+Después inicia la aplicación con:
+
+```bash
 npm start
 ```
 
@@ -86,7 +102,7 @@ Por defecto, la aplicación se conecta a la base local `finance_tracker`. Para u
 
 También puedes configurar la conexión con `DATABASE_URL`, o con las variables de PostgreSQL `PGHOST`, `PGPORT`, `PGUSER` y `PGPASSWORD`. No guardes contraseñas en archivos versionados.
 
-Abre [http://127.0.0.1:3000](http://127.0.0.1:3000). Si el puerto 3000 está ocupado, puedes indicar otro con `PORT=3001 npm start` y abrir `http://127.0.0.1:3001`. Inicia sesión para consultar tus finanzas personales: gastos, ingresos, transferencias, saldos, presupuestos, metas y categorías. La edición de gastos solo admite pesos enteros. Las eliminaciones son permanentes; para corregir un ingreso o transferencia, elimínalo y vuelve a registrarlo. Las transferencias mueven saldo entre cuentas y no cuentan como ingreso ni gasto. En «Cuentas» puedes configurar el saldo inicial; se considera anterior a todos los movimientos guardados. Para detener el servidor, presiona `Ctrl+C`.
+Abre [http://127.0.0.1:3000](http://127.0.0.1:3000). Si el puerto 3000 está ocupado, puedes indicar otro con `PORT=3001 npm start` y abrir `http://127.0.0.1:3001`. Inicia sesión para consultar tus finanzas personales: gastos, ingresos, transferencias, saldos, presupuestos, metas y categorías. Puedes editar gastos, ingresos y transferencias desde la lista de movimientos; la edición de gastos e ingresos solo admite pesos enteros, por lo que los registros existentes con centavos no se pueden editar. Las transferencias admiten centavos. Las eliminaciones son permanentes. Las transferencias mueven saldo entre cuentas y no cuentan como ingreso ni gasto. En «Cuentas» puedes configurar el saldo inicial; se considera anterior a todos los movimientos guardados. Para detener el servidor, presiona `Ctrl+C`.
 
 El reporte «Evolución de tus gastos» compara los últimos 3, 6 o 12 meses hasta el mes seleccionado. Muestra el total y promedio mensual, la evolución por mes y el gasto acumulado por categoría. Los meses sin movimientos aparecen con total cero. El reporte incluye únicamente gastos personales de cuentas en CLP.
 
@@ -103,6 +119,12 @@ Para ejecutar las pruebas:
 ```bash
 npm test
 ```
+
+## API Python
+
+El backend y el servidor del dashboard usan Python; la interfaz sigue usando JavaScript en el navegador. La API utiliza por defecto la base local `finance_tracker`, o `DATABASE_URL` y las variables estándar de PostgreSQL para otra conexión. Conserva las cuentas y sesiones existentes. Escucha solo en el equipo local; no la expongas a internet ni a redes compartidas.
+
+Las pruebas de integración con PostgreSQL se omiten por defecto. Para incluirlas junto con las pruebas de la interfaz, ejecuta `FINANCE_TEST_ADMIN_DATABASE=finance_tracker npm test`. Requieren permiso para crear bases: crean bases temporales separadas y las eliminan al terminar; no modifican la base indicada. Las pruebas también comprueban la compatibilidad con cuentas y sesiones creadas por el servidor anterior de Node.
 
 ## Próximos pasos
 
