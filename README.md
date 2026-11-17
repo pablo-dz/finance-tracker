@@ -2,7 +2,16 @@
 
 Proyecto para entender ingresos, gastos, transferencias, presupuestos y metas de ahorro en pesos chilenos (CLP). La aplicación permite registrar y revisar las finanzas personales en una página web local. La colaboración con otras personas queda para una etapa futura.
 
-## Lo que existe
+## Estructura del proyecto
+
+- `backend/`: API y servidor del dashboard en Python.
+- `frontend/`: interfaz web en HTML, CSS y JavaScript.
+- `frontend/modules/`: módulos de autenticación, movimientos, planificación, ahorro y reportes.
+- `tests/backend/` y `tests/frontend/`: pruebas del backend y de la interfaz.
+- `db/migrations/`: esquema y migraciones de PostgreSQL.
+- `db/seeds/`: datos ficticios opcionales para pruebas manuales.
+
+## Base de datos
 
 - `db/migrations/001_schema.sql`: tablas de hogares, integrantes, cuentas, categorías, movimientos, presupuestos y metas.
 - `db/migrations/002_bi_views.sql`: vistas de consulta que podrán servir como base para el dashboard web. Se conserva el nombre original de la migración.
@@ -75,10 +84,17 @@ Usa `\q` para salir de `psql`. La diferencia entre ingresos y gastos no equivale
 
 ## Dashboard personal
 
-Necesitas Node.js 22 o superior y npm. Con PostgreSQL iniciado y las migraciones aplicadas, ejecuta desde la raíz del proyecto:
+Necesitas Python 3.10 o superior, Node.js 22 o superior y npm. Con PostgreSQL iniciado y las migraciones aplicadas, prepara el entorno una sola vez desde la raíz del proyecto:
 
 ```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install -r backend/requirements-test.txt
 npm install
+```
+
+Después inicia la aplicación con:
+
+```bash
 npm start
 ```
 
@@ -103,6 +119,12 @@ Para ejecutar las pruebas:
 ```bash
 npm test
 ```
+
+## API Python
+
+El backend y el servidor del dashboard usan Python; la interfaz sigue usando JavaScript en el navegador. La API utiliza por defecto la base local `finance_tracker`, o `DATABASE_URL` y las variables estándar de PostgreSQL para otra conexión. Conserva las cuentas y sesiones existentes. Escucha solo en el equipo local; no la expongas a internet ni a redes compartidas.
+
+Las pruebas de integración con PostgreSQL se omiten por defecto. Para incluirlas junto con las pruebas de la interfaz, ejecuta `FINANCE_TEST_ADMIN_DATABASE=finance_tracker npm test`. Requieren permiso para crear bases: crean bases temporales separadas y las eliminan al terminar; no modifican la base indicada. Las pruebas también comprueban la compatibilidad con cuentas y sesiones creadas por el servidor anterior de Node.
 
 ## Próximos pasos
 

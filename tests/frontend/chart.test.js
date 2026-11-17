@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { expenseShare } from "../web/chart.js";
+import { expenseShare } from "../../frontend/chart.js";
 
 test("calcula la proporción usando el total del mes y muestra valores pequeños", () => {
   assert.deepEqual(expenseShare("195000.00", "1000000.00"), { width: 19.5, label: "19,5 %" });
