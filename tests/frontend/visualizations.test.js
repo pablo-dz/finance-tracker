@@ -1,7 +1,38 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { JSDOM } from "jsdom";
-import { donutChart, lineChart } from "../../frontend/modules/visualizations.js";
+import { budgetChart, donutChart, lineChart } from "../../frontend/modules/visualizations.js";
+
+test("el gráfico de presupuestos superpone barras en una escala monetaria común", () => {
+  const dom = new JSDOM("<div></div>");
+  const container = dom.window.document.querySelector("div");
+  budgetChart(container, [
+    { name: "Dentro", limit: 100n, spent: 50n },
+    { name: "Igual", limit: 100n, spent: 100n },
+    { name: "Excedido", limit: 100n, spent: 200n },
+    { name: "Cero", limit: 0n, spent: 0n },
+  ], String);
+  const limits = [...container.querySelectorAll(".budget-column-limit")];
+  const spends = [...container.querySelectorAll(".budget-column-within, .budget-column-exceeded")];
+  assert.deepEqual(limits.map((item) => Number(item.getAttribute("height"))), [120, 120, 120, 0]);
+  assert.deepEqual(spends.map((item) => Number(item.getAttribute("height"))), [60, 120, 240, 0]);
+  assert.deepEqual(spends.map((item) => item.getAttribute("class")), [
+    "budget-column-within", "budget-column-within", "budget-column-exceeded", "budget-column-within",
+  ]);
+  assert.equal(Number(limits[0].getAttribute("x")) + Number(limits[0].getAttribute("width")) / 2,
+    Number(spends[0].getAttribute("x")) + Number(spends[0].getAttribute("width")) / 2);
+  assert.deepEqual([...container.querySelectorAll(".budget-y-axis span:not(.budget-axis-width)")].map((item) => item.textContent),
+    ["200", "100", "0"]);
+  assert.deepEqual([...container.querySelectorAll(".budget-plot-labels span")].map((item) => item.textContent),
+    ["Dentro", "Igual", "Excedido", "Cero"]);
+  assert.match(spends[2].textContent, /Excedido · Gastado: 200/);
+  budgetChart(container, [{ name: "Cero", limit: 0n, spent: 0n }], String);
+  assert.equal(container.querySelector(".budget-column-within").getAttribute("height"), "0");
+  assert.equal(container.querySelectorAll(".budget-y-axis span:not(.budget-axis-width)").length, 1);
+  budgetChart(container, [], String);
+  assert.equal(container.childNodes.length, 0);
+  dom.window.close();
+});
 
 test("el gráfico temporal representa valores positivos y negativos sobre una escala común", () => {
   const dom = new JSDOM("<div></div>");

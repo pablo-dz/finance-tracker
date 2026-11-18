@@ -250,21 +250,19 @@ test("los módulos coordinan la sesión, los movimientos y la planificación", a
   submit("#month-form");
   await waitFor(() => element("#dashboard-budget-chart").textContent.includes("Cero con gasto")
     && !element("#dashboard-content").hidden);
-  const chartItems = [...element("#dashboard-budget-chart").querySelectorAll(".budget-chart-item")];
-  assert.deepEqual(chartItems.map((item) => item.querySelector("strong").textContent),
-    ["Exceso", "Exceso mínimo", "Límite", "Alerta", "Bajo la alerta", "Normal", "Muy pequeño"]);
-  for (const [index, width, level] of [[0, "100%", "exceeded"], [1, "100%", "exceeded"],
-                                       [2, "100%", "limit"], [3, "80%", "warning"],
-                                       [4, "79.99%", "normal"], [5, "79.99%", "normal"]]) {
-    const fill = chartItems[index].querySelector(".dashboard-bar");
-    assert.equal(fill.style.width, width);
-    assert.ok(fill.classList.contains(`budget-level-${level}`));
-  }
-  assert.match(chartItems[0].textContent, /150 %.*Excedido: \$50/);
-  assert.match(chartItems[1].textContent, />100 %.*Presupuesto excedido/);
-  assert.match(chartItems[4].textContent, /79,99 %.*Dentro del presupuesto/);
-  assert.match(chartItems[6].textContent, /<0,01 %/);
-  assert.match(element("#dashboard-budget-chart").textContent, /Presupuesto cero.*Cero con gasto.*Excedido: \$10.*Cero sin gasto.*Sin gasto/);
+  const chart = element("#dashboard-budget-chart");
+  assert.deepEqual([...chart.querySelectorAll(".budget-plot-labels span")].map((item) => item.textContent),
+    ["Cero con gasto", "Exceso", "Exceso mínimo", "Límite", "Alerta", "Bajo la alerta", "Normal", "Muy pequeño", "Cero sin gasto"]);
+  const columns = [...chart.querySelectorAll(".budget-column-exceeded, .budget-column-within")];
+  assert.deepEqual(columns.map((column) => column.getAttribute("class")),
+    ["budget-column-exceeded", "budget-column-exceeded", "budget-column-exceeded",
+     "budget-column-within", "budget-column-within", "budget-column-within",
+     "budget-column-within", "budget-column-within", "budget-column-within"]);
+  assert.match(element("#dashboard-budgets").textContent, /150 %.*Presupuesto excedido/);
+  assert.match(element("#dashboard-budgets").textContent, />100 %.*Presupuesto excedido/);
+  assert.match(element("#dashboard-budgets").textContent, /79,99 %.*Dentro del presupuesto/);
+  assert.match(element("#dashboard-budgets").textContent, /<0,01 %/);
+  assert.match(element("#dashboard-budgets").textContent, /Cero con gasto.*Excedido: \$10/);
   assert.match(element("#dashboard-budget-chart").textContent, /Sin presupuesto.*Sin límite.*Gastado: \$20/);
   assert.equal(element("#dashboard-budgets").closest("details").open, false);
   data.dashboardBudgets = [];

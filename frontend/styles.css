@@ -129,12 +129,24 @@ li { border-top: 1px solid #edf1ed; padding: 15px 0; }
 .budget-level-warning { color: #8a5708 !important; }
 .budget-level-exceeded, .budget-level-limit { color: #a53d3d !important; }
 .budget-chart { margin: 18px 0; }
-.budget-chart-item { padding: 14px 0; }
-.budget-chart-heading, .budget-chart-detail { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 5px 16px; }
-.budget-chart-heading strong, .budget-chart-exceptions strong { overflow-wrap: anywhere; }
-.budget-chart-heading span { font-size: 13px; font-weight: 600; }
-.budget-chart .dashboard-bar-track { height: 12px; margin: 9px 0; }
-.budget-chart-detail { color: #64766a; font-size: 12px; }
+.budget-legend-limit { background: #d6e0d8; border: 1px solid #849b89; }
+.budget-legend-within, .budget-column-within { fill: #368b5f; background: #368b5f; }
+.budget-legend-exceeded, .budget-column-exceeded { fill: #b94a48; background: #b94a48; }
+.budget-column-limit { fill: #d6e0d8; stroke: #849b89; stroke-width: 1; }
+.budget-chart-hint { color: #64766a; font-size: 12px; margin: 10px 0; }
+.budget-plot { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 10px; }
+.budget-y-axis { position: relative; height: 240px; color: #51685a; font-size: 11px; text-align: right; }
+.budget-y-axis span { display: block; white-space: nowrap; }
+.budget-axis-width { visibility: hidden; }
+.budget-y-axis span:not(.budget-axis-width) { position: absolute; right: 0; }
+.budget-tick-top { top: 0; }
+.budget-tick-middle { top: 50%; transform: translateY(-50%); }
+.budget-tick-bottom { bottom: 0; }
+.budget-plot-scroll { overflow-x: auto; }
+.budget-plot-svg { display: block; width: 100%; height: 240px; overflow: visible; }
+.budget-plot-labels { display: flex; }
+.budget-plot-labels span { flex: 1 1 0; min-width: 0; padding: 7px 5px 0; font-size: 12px; text-align: center; overflow-wrap: anywhere; }
+.budget-chart-exceptions strong { overflow-wrap: anywhere; }
 .budget-chart-exceptions { margin-top: 20px; }
 .budget-chart-exceptions h4 { margin: 0 0 5px; font-size: 13px; color: #64766a; }
 .budget-chart-exceptions li { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 5px 16px; padding: 9px 0; font-size: 13px; }

@@ -14,6 +14,71 @@ function text(document, tag, value, className) {
   return element;
 }
 
+export function budgetChart(container, entries, format) {
+  container.replaceChildren();
+  if (!entries.length) return;
+  const document = container.ownerDocument;
+  const max = entries.reduce((largest, entry) =>
+    [largest, entry.limit, entry.spent].reduce((a, b) => a > b ? a : b), 0n);
+  const height = 240;
+  const width = entries.length * 140;
+  const barHeight = (value) => max === 0n ? 0 : Number(value * 1000000n / max) * height / 1000000;
+  const legend = text(document, "div", "", "visualization-legend");
+  for (const [label, className] of [
+    ["Límite", "budget-legend-limit"],
+    ["Gasto dentro del límite", "budget-legend-within"],
+    ["Gasto excedido", "budget-legend-exceeded"],
+  ]) {
+    const key = text(document, "span", label, "visualization-key");
+    key.prepend(text(document, "span", "", `visualization-marker ${className}`));
+    legend.append(key);
+  }
+  const hint = text(document, "p", "Eje vertical: CLP · Eje horizontal: categorías. Desliza para ver todas.", "budget-chart-hint");
+  const plot = text(document, "div", "", "budget-plot");
+  const axis = text(document, "div", "", "budget-y-axis");
+  axis.setAttribute("aria-label", "Eje vertical: dinero en CLP");
+  axis.append(text(document, "span", format(max), "budget-axis-width"));
+  if (max > 0n) axis.append(text(document, "span", format(max), "budget-tick-top"));
+  if (max >= 2n) axis.append(text(document, "span", format(max / 2n), "budget-tick-middle"));
+  axis.append(text(document, "span", format(0n), "budget-tick-bottom"));
+  const scroll = text(document, "div", "", "budget-plot-scroll");
+  const inner = text(document, "div", "", "budget-plot-inner");
+  inner.style.minWidth = `${width}px`;
+  const svg = svgElement(document, "svg", {
+    viewBox: `0 0 ${width} ${height}`, preserveAspectRatio: "none", "aria-hidden": "true", class: "budget-plot-svg",
+  });
+  for (const y of [0, height / 2, height]) {
+    svg.append(svgElement(document, "line", {
+      x1: 0, x2: width, y1: y, y2: y, class: "visualization-grid",
+    }));
+  }
+  const labels = text(document, "div", "", "budget-plot-labels");
+  entries.forEach((entry, index) => {
+    const center = index * 140 + 70;
+    const limitHeight = barHeight(entry.limit);
+    const spentHeight = barHeight(entry.spent);
+    const limit = svgElement(document, "rect", {
+      x: center - 38, y: height - limitHeight, width: 76, height: limitHeight, class: "budget-column-limit",
+    });
+    const spent = svgElement(document, "rect", {
+      x: center - 22, y: height - spentHeight, width: 44, height: spentHeight,
+      class: entry.spent > entry.limit ? "budget-column-exceeded" : "budget-column-within",
+    });
+    const limitTitle = svgElement(document, "title");
+    limitTitle.textContent = `${entry.name} · Límite: ${format(entry.limit)}`;
+    const spentTitle = svgElement(document, "title");
+    spentTitle.textContent = `${entry.name} · Gastado: ${format(entry.spent)}`;
+    limit.append(limitTitle);
+    spent.append(spentTitle);
+    svg.append(limit, spent);
+    labels.append(text(document, "span", entry.name));
+  });
+  inner.append(svg, labels);
+  scroll.append(inner);
+  plot.append(axis, scroll);
+  container.append(legend, hint, plot);
+}
+
 export function lineChart(container, labels, series, format) {
   container.replaceChildren();
   if (!labels.length) return;

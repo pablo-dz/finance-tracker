@@ -1,12 +1,12 @@
 import { displayName, formatMoney, state } from "./common.js";
-import { lineChart, donutChart } from "./visualizations.js";
+import { budgetChart, lineChart, donutChart } from "./visualizations.js";
 
 const status = document.querySelector("#dashboard-status");
 const content = document.querySelector("#dashboard-content");
 const period = document.querySelector("#dashboard-period");
 const summary = document.querySelector("#dashboard-summary");
 const budgetList = document.querySelector("#dashboard-budgets");
-const budgetChart = document.querySelector("#dashboard-budget-chart");
+const budgetChartContainer = document.querySelector("#dashboard-budget-chart");
 const trendList = document.querySelector("#dashboard-trend");
 const trendChart = document.querySelector("#dashboard-trend-chart");
 const categoryTrend = document.querySelector("#dashboard-category-trend");
@@ -93,58 +93,41 @@ function renderSummary(data) {
 
 function renderBudgets(rows) {
   budgetList.replaceChildren();
-  budgetChart.replaceChildren();
+  budgetChartContainer.replaceChildren();
   if (!rows.length) {
-    budgetChart.append(node("p", "No hay categorías para este mes.", "dashboard-empty"));
+    budgetChartContainer.append(node("p", "No hay categorías para este mes.", "dashboard-empty"));
     return empty(budgetList, "No hay categorías para este mes.");
   }
-  const withLimit = rows.filter((row) => row.budget !== null && cents(row.budget) > 0n);
-  const zeroLimit = rows.filter((row) => row.budget !== null && cents(row.budget) === 0n);
+  const withLimit = rows.filter((row) => row.budget !== null);
   const withoutLimit = rows.filter((row) => row.budget === null);
   withLimit.sort((a, b) => {
+    const aZero = cents(a.budget) === 0n;
+    const bZero = cents(b.budget) === 0n;
+    const rank = (row, zero) => zero ? (cents(row.spent) > 0n ? 2 : 0) : 1;
+    const rankDifference = rank(b, bZero) - rank(a, aZero);
+    if (rankDifference || aZero || bZero) return rankDifference;
     const difference = cents(a.spent) * cents(b.budget) - cents(b.spent) * cents(a.budget);
     return difference > 0n ? -1 : difference < 0n ? 1 : 0;
   });
   if (withLimit.length) {
-    const chart = node("ul", undefined, "budget-chart-bars");
-    chart.setAttribute("aria-label", "Gasto por categoría frente al presupuesto");
-    for (const row of withLimit) {
-      const spent = cents(row.spent);
-      const limit = cents(row.budget);
-      const level = budgetLevel(spent, limit);
-      const hundredths = spent * 10000n / limit;
-      const fraction = String(hundredths % 100n).padStart(2, "0").replace(/0+$/, "");
-      const percentage = spent > 0n && hundredths === 0n ? "<0,01 %"
-        : spent > limit && hundredths === 10000n ? ">100 %"
-        : `${new Intl.NumberFormat("es-CL").format(hundredths / 100n)}${fraction ? `,${fraction}` : ""} %`;
-      const item = node("li", undefined, "budget-chart-item");
-      const heading = node("div", undefined, "budget-chart-heading");
-      const name = displayName(row.category) + (row.isActive === false ? " · Archivada" : "");
-      heading.append(node("strong", name), node("span", `${formatMoney(row.spent)} / ${formatMoney(row.budget)}`));
-      const detail = node("div", undefined, "budget-chart-detail");
-      detail.append(node("span", `${percentage} · ${budgetLabel(level)}`, `budget-level-${level}`),
-        node("span", `${row.exceeded ? "Excedido" : "Disponible"}: ${formatMoney(row.difference)}`));
-      item.append(heading, bar(spent > limit ? limit : spent, limit, `budget-level-${level}`), detail);
-      chart.append(item);
-    }
-    budgetChart.append(chart);
+    budgetChart(budgetChartContainer, withLimit.map((row) => ({
+      name: displayName(row.category) + (row.isActive === false ? " · Archivada" : ""),
+      limit: cents(row.budget), spent: cents(row.spent),
+    })), money);
   } else {
-    budgetChart.append(node("p", "No hay categorías con presupuesto mayor que cero.", "dashboard-empty"));
+    budgetChartContainer.append(node("p", "No hay categorías con presupuesto.", "dashboard-empty"));
   }
-  for (const [title, entries] of [["Presupuesto cero", zeroLimit], ["Sin presupuesto", withoutLimit]]) {
-    if (!entries.length) continue;
+  if (withoutLimit.length) {
     const section = node("section", undefined, "budget-chart-exceptions");
     const list = node("ul");
-    section.append(node("h4", title), list);
-    for (const row of entries) {
+    section.append(node("h4", "Sin presupuesto"), list);
+    for (const row of withoutLimit) {
       const name = displayName(row.category) + (row.isActive === false ? " · Archivada" : "");
       const item = node("li");
-      const detail = row.budget === null ? `Gastado: ${formatMoney(row.spent)}`
-        : `Gastado: ${formatMoney(row.spent)} · ${cents(row.spent) > 0n ? `Excedido: ${formatMoney(row.difference)}` : "Sin gasto"}`;
-      item.append(node("strong", name), node("span", detail, row.budget !== null && cents(row.spent) > 0n ? "budget-level-exceeded" : ""));
+      item.append(node("strong", name), node("span", `Gastado: ${formatMoney(row.spent)}`));
       list.append(item);
     }
-    budgetChart.append(section);
+    budgetChartContainer.append(section);
   }
   for (const row of rows) {
     const item = node("li", undefined, "dashboard-chart-item");
@@ -157,10 +140,19 @@ function renderBudgets(rows) {
       const spent = cents(row.spent);
       const level = budgetLevel(spent, limit);
       const difference = `${row.exceeded ? "Excedido" : "Disponible"}: ${formatMoney(row.difference)}`;
-      item.append(node("p", `Gastado: ${formatMoney(row.spent)} · Límite: ${formatMoney(row.budget)} · ${difference} · ${budgetLabel(level)}`, `budget-level-${level}`));
+      const percent = limit > 0n ? ` · ${budgetPercentage(spent, limit)}` : "";
+      item.append(node("p", `Gastado: ${formatMoney(row.spent)} · Límite: ${formatMoney(row.budget)} · ${difference}${percent} · ${budgetLabel(level)}`, `budget-level-${level}`));
     }
     budgetList.append(item);
   }
+}
+
+function budgetPercentage(spent, limit) {
+  const hundredths = spent * 10000n / limit;
+  const fraction = String(hundredths % 100n).padStart(2, "0").replace(/0+$/, "");
+  if (spent > 0n && hundredths === 0n) return "<0,01 %";
+  if (spent > limit && hundredths === 10000n) return ">100 %";
+  return `${new Intl.NumberFormat("es-CL").format(hundredths / 100n)}${fraction ? `,${fraction}` : ""} %`;
 }
 
 function budgetLevel(spent, limit) {
