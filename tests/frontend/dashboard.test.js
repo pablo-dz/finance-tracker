@@ -51,6 +51,7 @@ test("los módulos coordinan la sesión, los movimientos y la planificación", a
     expense: null,
     income: null,
     transfer: null,
+    extraMovements: [],
     budget: null,
     otherBudgets: {},
     goals: [],
@@ -61,6 +62,7 @@ test("los módulos coordinan la sesión, los movimientos y la planificación", a
     dashboardMonthly: null,
     failDashboard: false,
     failExpenses: false,
+    failHistory: false,
     failGoals: false,
     failCategories: false,
     failCategorySave: false,
@@ -140,6 +142,10 @@ test("los módulos coordinan la sesión, los movimientos y la planificación", a
       account.openingBalance = body.amount;
       result = { message: "Guardado." };
     } else if (url.pathname === "/api/gastos" && method !== "GET") {
+      if (method === "DELETE") {
+        data.expense = null;
+        return { ok: true, json: async () => ({ message: "Eliminado." }) };
+      }
       if (body.merchant === "Rechazado") {
         return { ok: false, json: async () => ({ error: "No se pudo guardar el gasto." }) };
       }
@@ -160,15 +166,22 @@ test("los módulos coordinan la sesión, los movimientos y la planificación", a
       data.transfer = body;
       result = { message: "Guardado." };
     } else if (url.pathname === "/api/movimientos") {
+      if (url.searchParams.get("todos") === "1" && data.failHistory) {
+        return { ok: false, json: async () => ({ error: "Historial no disponible." }) };
+      }
       result = {
         incomeTotal: data.income ? `${data.income.amount}.00` : "0",
-        movements: [...(data.income ? [{
+        movements: [...(data.expense ? [{
+          ...data.expense, id: "transaction-1", type: "expense", amount: `${data.expense.amount}.00`,
+          account: account.name, editable: true,
+        }] : []), ...(data.income ? [{
           ...data.income, id: "transaction-2", type: "income", description: data.income.merchant,
-          amount: `${data.income.amount}.00`, account: account.name, category: incomeCategory.name,
+          amount: `${data.income.amount}.00`, account: account.name, category: incomeCategory.name, editable: true,
         }] : []), ...(data.transfer ? [{
           ...data.transfer, id: "transfer-3", type: "transfer", description: data.transfer.note,
           amount: data.transfer.amount, account: account.name, destinationAccount: secondAccount.name,
-        }] : [])],
+        }] : []), ...(url.searchParams.get("todos") === "1" ? data.extraMovements : [])]
+          .sort((a, b) => b.date.localeCompare(a.date)),
       };
     } else if (url.pathname === "/api/categorias/lote" && method === "POST") {
       if (data.categorySaveGate) await data.categorySaveGate;
@@ -227,9 +240,6 @@ test("los módulos coordinan la sesión, los movimientos y la planificación", a
       data.goals[0].saved = "0";
       data.goals[0].contributions = [];
       result = { message: "Eliminado." };
-    } else if (url.pathname === "/api/reportes") {
-      result = { total: data.expense ? `${data.expense.amount}.00` : "0", average: "0",
-                 monthly: [], categories: [] };
     } else {
       throw new Error(`Solicitud inesperada: ${method} ${url.pathname}`);
     }
@@ -271,6 +281,7 @@ test("los módulos coordinan la sesión, los movimientos y la planificación", a
   await waitFor(() => !element("#dashboard-content").hidden);
   assert.equal(element("#user-email").textContent, "test@example.test");
   assert.equal(element("#dashboard-view").hidden, false);
+  assert.equal(element("#movements-view").hidden, true);
   assert.equal(element("#savings-panel").hidden, true);
   assert.equal(element("#nav-dashboard").getAttribute("aria-current"), "page");
   assert.equal(element("#budget-panel"), null);
@@ -427,6 +438,16 @@ test("los módulos coordinan la sesión, los movimientos y la planificación", a
   await waitFor(() => element("#dashboard-budget-chart").textContent.includes("Sin presupuesto")
     && !element("#dashboard-content").hidden);
 
+  element("#nav-movements").click();
+  assert.equal(element("#dashboard-view").hidden, true);
+  assert.equal(element("#movements-view").hidden, false);
+  assert.equal(element("#nav-movements").getAttribute("aria-current"), "page");
+  assert.equal(element("#month-form").hidden, true);
+  assert.ok(element("#movements-view").contains(element("#expense-form")));
+  assert.ok(element("#registration").compareDocumentPosition(element("#movements")) & window.Node.DOCUMENT_POSITION_FOLLOWING);
+  assert.ok(element("#income-registration").compareDocumentPosition(element("#movements")) & window.Node.DOCUMENT_POSITION_FOLLOWING);
+  data.extraMovements = [{ id: "transaction-9", type: "expense", description: "Histórico",
+    date: "2001-01-01", amount: "12.50", account: "Cuenta principal", category: null, editable: false }];
   field("#expense-form", "merchant", "Compra");
   field("#expense-form", "amount", "1500");
   field("#expense-form", "accountId", "1");
@@ -434,8 +455,15 @@ test("los módulos coordinan la sesión, los movimientos y la planificación", a
   submit("#expense-form");
   await waitFor(() => element("#movements").textContent.includes("Compra") && !element("#save-expense").disabled);
   assert.equal(element("#total").textContent, "$1.500");
-  assert.match(element("#categories").textContent, /Supermercado.*100 %/);
+  assert.equal(element("#categories"), null);
+  assert.equal(element("#report-panel"), null);
+  assert.equal(element("#count").textContent, "1");
+  assert.match(element("#movements .movement-amount.expense").textContent, /↓ −\$1.500/);
+  assert.match(element("#movements").textContent, /Histórico.*Egreso.*−\$12,5/);
+  assert.equal(element('[aria-label="Editar Histórico"]'), null);
+  assert.ok(!requests.some((request) => request.path === "/api/reportes"));
   element('[aria-label="Editar Compra"]').click();
+  assert.equal(element("#registration").open, true);
   field("#expense-form", "amount", "1200");
   submit("#expense-form");
   await waitFor(() => element("#total").textContent === "$1.200" && !element("#save-expense").disabled);
@@ -458,21 +486,76 @@ test("los módulos coordinan la sesión, los movimientos y la planificación", a
   field("#income-form", "accountId", "1");
   field("#income-form", "categoryId", "3");
   submit("#income-form");
-  await waitFor(() => element("#income-movements").textContent.includes("Sueldo") && !element("#save-income").disabled);
+  await waitFor(() => element("#movements").textContent.includes("Sueldo") && !element("#save-income").disabled);
   assert.equal(element("#income-total").textContent, "$3.000");
+  assert.match(element("#movements .movement-amount.income").textContent, /↑ \+\$3.000/);
+  assert.match(element("#movements").textContent, /Compra/);
+  element('[aria-label="Editar ingreso Sueldo"]').click();
+  assert.equal(element("#income-registration").open, true);
+  assert.equal(element("#income-form [name=amount]").value, "3000");
+  element("#cancel-income-edit").click();
 
   field("#transfer-form", "amount", "200.50");
   field("#transfer-form", "sourceAccountId", "1");
   field("#transfer-form", "destinationAccountId", "6");
   field("#transfer-form", "note", "Ahorro");
   submit("#transfer-form");
-  await waitFor(() => element("#income-movements").textContent.includes("Ahorro") && !element("#save-transfer").disabled);
+  await waitFor(() => element("#transfer-movements").textContent.includes("Ahorro") && !element("#save-transfer").disabled);
+  assert.ok(!element("#movements").textContent.includes("Ahorro"));
   element('[aria-label="Editar transferencia Ahorro"]').click();
   field("#transfer-form", "amount", "300.50");
   submit("#transfer-form");
   await waitFor(() => element("#transfer-form-message").textContent === "Transferencia actualizada correctamente.");
   assert.ok(requests.some((request) => request.path === "/api/transferencias" && request.method === "PUT"
     && request.body.id === "3" && request.body.amount === "300.50"));
+
+  const setFilter = (name, value) => {
+    const control = element(`#movement-filter-form [name="${name}"]`);
+    control.value = value;
+    control.dispatchEvent(new window.Event("input", { bubbles: true }));
+  };
+  setFilter("from", "2001-01-01");
+  setFilter("to", "2001-01-01");
+  assert.match(element("#movements").textContent, /Histórico/);
+  assert.doesNotMatch(element("#movements").textContent, /Compra|Sueldo/);
+  setFilter("from", "2001-01-02");
+  assert.match(element("#movement-filter-status").textContent, /fecha inicial/);
+  assert.equal(element("#movements").children.length, 0);
+  element("#clear-movement-filters").click();
+  setFilter("description", "hIsToRiCo");
+  assert.match(element("#movements").textContent, /Histórico/);
+  assert.doesNotMatch(element("#movements").textContent, /Compra/);
+  setFilter("type", "income");
+  assert.equal(element("#movements-empty").hidden, false);
+  assert.match(element("#movements-empty").textContent, /coincidan/);
+  element("#clear-movement-filters").click();
+  setFilter("category", "2");
+  setFilter("type", "expense");
+  setFilter("account", "1");
+  assert.match(element("#movements").textContent, /Compra/);
+  assert.doesNotMatch(element("#movements").textContent, /Sueldo|Histórico/);
+  assert.equal(element("#transfer-movements").children.length, 0);
+  setFilter("type", "");
+  setFilter("account", "");
+  setFilter("category", "uncategorized");
+  assert.match(element("#movements").textContent, /Histórico/);
+  element("#clear-movement-filters").click();
+  setFilter("account", "6");
+  assert.equal(element("#movements").children.length, 0);
+  assert.match(element("#transfer-movements").textContent, /Ahorro/);
+  setFilter("type", "income");
+  assert.equal(element("#transfer-movements").children.length, 0);
+  element("#clear-movement-filters").click();
+  setFilter("type", "transfer");
+  setFilter("description", "ahorro");
+  assert.match(element("#transfer-movements").textContent, /Ahorro/);
+  submit("#month-form");
+  await waitFor(() => element("#transfer-movements").textContent.includes("Ahorro"));
+  assert.equal(element('#movement-filter-form [name="type"]').value, "transfer");
+  assert.equal(element("#movements").children.length, 0);
+  element("#clear-movement-filters").click();
+  assert.match(element("#movements").textContent, /Compra/);
+  assert.match(element("#transfer-movements").textContent, /Ahorro/);
 
   field("#opening-balance-form", "amount", "1000");
   submit("#opening-balance-form");
@@ -558,6 +641,10 @@ test("los módulos coordinan la sesión, los movimientos y la planificación", a
   await waitFor(() => element("#income-form-message").textContent === "Ingreso registrado correctamente."
     && !element("#save-income").disabled);
   assert.equal(element("#month").value, initialMonth);
+  assert.match(element("#movements").textContent, /Ingreso anterior/);
+  assert.match(element("#movements").textContent, /Compra/);
+  assert.deepEqual([...element("#movements").querySelectorAll(".movement-detail > strong")]
+    .map((item) => item.textContent).slice(-2), ["Ingreso anterior", "Histórico"]);
   assert.equal(element('[aria-label="Presupuesto de Supermercado"]').value, "2000");
   data.budget.amount = "1750";
   const budgetRequests = requests.filter((request) => request.path === "/api/presupuestos").length;
@@ -761,12 +848,30 @@ test("los módulos coordinan la sesión, los movimientos y la planificación", a
   element('[aria-label="Eliminar pago recurrente Suscripción"]').click();
   await waitFor(() => element("#recurring-list").textContent.includes("No hay pagos"));
 
+  data.failHistory = true;
+  submit("#month-form");
+  await waitFor(() => element("#movement-status").textContent === "Historial no disponible.");
+  assert.equal(element("#movements").children.length, 0);
+  data.failHistory = false;
+  submit("#month-form");
+  await waitFor(() => element("#movements").textContent.includes("Compra"));
+
   data.failDashboard = true;
   submit("#month-form");
   await waitFor(() => element("#dashboard-status").textContent === "Dashboard no disponible.");
   assert.equal(element("#dashboard-content").hidden, true);
+  element("#nav-movements").click();
+  setFilter("category", "2");
+  element('[aria-label^="Eliminar Compra del"]').click();
+  await waitFor(() => !element("#movements").textContent.includes("Compra")
+    && element("#movement-status").textContent === "Gasto eliminado correctamente.");
+  assert.ok(requests.some((request) => request.path === "/api/gastos" && request.method === "DELETE"
+    && request.body.id === "1"));
+  assert.equal(element('#movement-filter-form [name="category"]').value, "2");
+  assert.match(element("#movements-empty").textContent, /coincidan/);
 
   element("#logout-button").click();
   await waitFor(() => !element("#auth-panel").hidden);
   assert.equal(element("#auth-status").textContent, "Sesión cerrada.");
+  assert.equal(element('#movement-filter-form [name="category"]').value, "");
 });

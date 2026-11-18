@@ -6,7 +6,7 @@ Proyecto para entender ingresos, gastos, transferencias, presupuestos y metas de
 
 - `backend/`: API y servidor del dashboard en Python.
 - `frontend/`: interfaz web en HTML, CSS y JavaScript.
-- `frontend/modules/`: módulos de autenticación, movimientos, planificación, ahorro y reportes.
+- `frontend/modules/`: módulos de autenticación, movimientos, planificación, ahorro y dashboard.
 - `tests/backend/` y `tests/frontend/`: pruebas del backend y de la interfaz.
 - `db/migrations/`: esquema y migraciones de PostgreSQL.
 - `db/seeds/`: datos ficticios opcionales para pruebas manuales.
@@ -104,11 +104,11 @@ Por defecto, la aplicación se conecta a la base local `finance_tracker`. Para u
 
 También puedes configurar la conexión con `DATABASE_URL`, o con las variables de PostgreSQL `PGHOST`, `PGPORT`, `PGUSER` y `PGPASSWORD`. No guardes contraseñas en archivos versionados.
 
-Abre [http://127.0.0.1:3000](http://127.0.0.1:3000). Si el puerto 3000 está ocupado, puedes indicar otro con `PORT=3001 npm start` y abrir `http://127.0.0.1:3001`. Inicia sesión para consultar tus finanzas personales: gastos, ingresos, transferencias, saldos, presupuestos, metas y categorías. Puedes editar gastos, ingresos y transferencias desde la lista de movimientos; la edición de gastos e ingresos solo admite pesos enteros, por lo que los registros existentes con centavos no se pueden editar. Las transferencias admiten centavos. Las eliminaciones son permanentes. Las transferencias mueven saldo entre cuentas y no cuentan como ingreso ni gasto. En «Cuentas» puedes configurar el saldo inicial; se considera anterior a todos los movimientos guardados. Para detener el servidor, presiona `Ctrl+C`.
+Abre [http://127.0.0.1:3000](http://127.0.0.1:3000). Si el puerto 3000 está ocupado, puedes indicar otro con `PORT=3001 npm start` y abrir `http://127.0.0.1:3001`. En «Movimientos» puedes registrar ingresos y egresos y consultar su historial completo, ordenado por fecha, independientemente del mes del dashboard. Las transferencias se registran y muestran por separado: mueven saldo entre cuentas y no cuentan como ingreso ni gasto. Puedes editar y eliminar movimientos personales desde sus listas; la edición de gastos e ingresos solo admite pesos enteros, por lo que los registros existentes con centavos no se pueden editar. Las transferencias admiten centavos. Las eliminaciones son permanentes. En «Cuentas» puedes configurar el saldo inicial; se considera anterior a todos los movimientos guardados. Para detener el servidor, presiona `Ctrl+C`.
+
+En «Movimientos» puedes combinar filtros de fecha, tipo, categoría, descripción y cuenta; las fechas incluyen ambos extremos. La búsqueda de descripción no distingue mayúsculas ni tildes. Los filtros también se aplican a las transferencias: la cuenta puede ser de origen o destino, y al seleccionar una categoría no aparecen porque no tienen categoría. Usa «Limpiar filtros» para volver a ver todo.
 
 Al actualizar los módulos JavaScript, incrementa la versión `?v=` del módulo principal y de todas sus importaciones para evitar que el navegador mezcle versiones incompatibles.
-
-El reporte «Evolución de tus gastos» compara los últimos 3, 6 o 12 meses hasta el mes seleccionado. Muestra el total y promedio mensual, la evolución por mes y el gasto acumulado por categoría. Los meses sin movimientos aparecen con total cero. El reporte incluye únicamente gastos personales de cuentas en CLP.
 
 El dashboard mensual compara ingresos, gastos, ahorro neto y tasa de ahorro con el mes anterior. Bajo el total de gastos muestra el desglose de gastos fijos y variables, y los sin clasificar cuando existen. El ahorro neto es ingresos menos gastos; no descuenta transferencias ni aportes a metas. Sin ingresos no se calcula la tasa. El gráfico de presupuestos compara el gasto con el límite de cada categoría en una escala común en CLP: verde si está dentro del límite y rojo si lo supera. Pasa el cursor, toca o enfoca una barra para ver sus importes y alertas desde el 80 %; las categorías sin presupuesto aparecen aparte. Incluye tendencias de 6 o 12 meses por categoría, mayores gastos y comercios, y una comparación del gasto acumulado con un ritmo uniforme basado únicamente en categorías presupuestadas; el gasto sin presupuesto se informa aparte.
 
@@ -131,7 +131,7 @@ En «Categorías», consulta un mes y escribe el presupuesto junto a cada catego
 En «Categorías» puedes crear y renombrar categorías personales, clasificarlas como fijas o variables, y archivar o restaurar las que ya no uses. Los cambios se guardan juntos solo al pulsar «Actualizar categorías»; también puedes descartarlos y recargar. Las nuevas categorías son variables por defecto. Archivar no borra los gastos ni presupuestos anteriores; las categorías archivadas dejan de estar disponibles para nuevos gastos y presupuestos. Al renombrar o reclasificar una categoría, el cambio también aparece en sus registros anteriores.
 
 También puedes crear metas de ahorro con un monto objetivo y una fecha opcional, y registrar aportes para consultar el avance y el historial. Los aportes son solo seguimiento de la meta: **no modifican saldos de cuentas ni registran gastos o transferencias**. Puedes eliminar un aporte si lo registraste por error.
-Accede a estas funciones desde «Metas de ahorro» en la navegación; «Dashboard» vuelve al resumen y al registro de movimientos. La consulta de metas es independiente del mes seleccionado.
+Accede a estas funciones desde «Metas de ahorro» en la navegación; «Dashboard» vuelve al resumen financiero y «Movimientos» al registro e historial. La consulta de metas es independiente del mes seleccionado.
 
 Las cuentas usan contraseñas derivadas con `scrypt` y sesiones locales con cookies `HttpOnly`. No hay verificación de correo ni recuperación de contraseña. El servidor escucha únicamente en `127.0.0.1`; no lo expongas a internet ni a redes compartidas. El usuario configurado para conectarse a PostgreSQL es una credencial técnica distinta de la cuenta con la que inicias sesión en la aplicación. Respalda regularmente tu base de datos.
 

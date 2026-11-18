@@ -35,6 +35,8 @@ class MovementValidationTest(unittest.TestCase):
         for path in ("/api/gastos", "/api/movimientos"):
             for query in ("", "?mes=2020-13", "?mes=2020-06&mes=2020-06"):
                 self.assertEqual(self.client.get(path + query).status_code, 400)
+        for query in ("?todos=0", "?todos=1&todos=1", "?todos=1&mes=2020-06"):
+            self.assertEqual(self.client.get("/api/movimientos" + query).status_code, 400)
         response = self.client.post("/api/ingresos", headers={"Origin": "https://other.example"}, json={})
         self.assertEqual(response.status_code, 403)
 
@@ -146,14 +148,15 @@ class DashboardTest(unittest.TestCase):
             for path, content_type in (("/", "text/html"), ("/dashboard.js", "text/javascript"),
                                        ("/chart.js", "text/javascript"), ("/styles.css", "text/css"),
                                        *[(f"/modules/{name}.js", "text/javascript") for name in
-                                         ("auth", "common", "expenses", "movements", "planning", "reports", "savings", "analytics", "visualizations")]):
+                                         ("auth", "common", "expenses", "movements", "planning", "savings", "analytics", "visualizations")]):
                 response = client.get(path)
                 self.assertEqual(response.status_code, 200)
                 self.assertTrue(response.headers["content-type"].startswith(content_type))
                 self.assertEqual(response.headers["cache-control"], "no-cache")
-            self.assertEqual(client.get("/styles.css?v=7").status_code, 200)
-            self.assertEqual(client.get("/dashboard.js?v=7").status_code, 200)
-            self.assertEqual(client.get("/modules/planning.js?v=7").status_code, 200)
+            self.assertEqual(client.get("/styles.css?v=10").status_code, 200)
+            self.assertEqual(client.get("/dashboard.js?v=10").status_code, 200)
+            self.assertEqual(client.get("/modules/planning.js?v=10").status_code, 200)
+            self.assertEqual(client.get("/modules/reports.js").status_code, 404)
             self.assertEqual(client.get("/server.js").status_code, 404)
             self.assertEqual(client.get("/modules/unknown.js").status_code, 404)
 

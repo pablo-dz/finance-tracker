@@ -1,5 +1,5 @@
-import { displayName, formatMoney, state } from "./common.js?v=7";
-import { budgetChart, lineChart, pieChart3D } from "./visualizations.js?v=7";
+import { displayName, formatMoney, state } from "./common.js?v=10";
+import { budgetChart, lineChart, pieChart3D } from "./visualizations.js?v=10";
 
 const status = document.querySelector("#dashboard-status");
 const content = document.querySelector("#dashboard-content");

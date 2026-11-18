@@ -1,10 +1,10 @@
 import {
   incomeFormMessage, transferFormMessage,
-} from "./common.js?v=7";
-import { loadExpenses } from "./expenses.js?v=7";
-import { loadOptions, resetIncomeForm, resetTransferForm } from "./movements.js?v=7";
-import { loadSavingsGoals } from "./savings.js?v=7";
-import { categorySaveInProgress, clearCategoryDrafts, hasUnsavedCategories, loadCategories } from "./planning.js?v=7";
+} from "./common.js?v=10";
+import { loadExpenses } from "./expenses.js?v=10";
+import { clearMovementHistory, loadOptions, resetIncomeForm, resetTransferForm } from "./movements.js?v=10";
+import { loadSavingsGoals } from "./savings.js?v=10";
+import { categorySaveInProgress, clearCategoryDrafts, hasUnsavedCategories, loadCategories } from "./planning.js?v=10";
 
 const authPanel = document.querySelector("#auth-panel");
 const authStatus = document.querySelector("#auth-status");
@@ -90,6 +90,7 @@ logoutButton.addEventListener("click", async () => {
     if (!response.ok) throw new Error(data.error || "No fue posible cerrar la sesión.");
     resetIncomeForm();
     resetTransferForm();
+    clearMovementHistory();
     clearCategoryDrafts();
     incomeFormMessage.textContent = "";
     transferFormMessage.textContent = "";

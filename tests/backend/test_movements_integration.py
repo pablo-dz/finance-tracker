@@ -403,6 +403,43 @@ class MovementIntegrationTest(unittest.TestCase):
         with TestClient(app, base_url=self.origin) as unauthenticated:
             self.assertEqual(unauthenticated.get("/api/movimientos?mes=2020-06").status_code, 401)
 
+    def test_all_movement_history_is_ordered_and_isolated(self):
+        options = self.client.get("/api/opciones").json()
+        other = self.other.get("/api/opciones").json()
+        principal = next(account["id"] for account in options["accounts"] if account["name"] == "Cuenta principal")
+        expense = {"merchant": "Compra", "amount": "100", "date": "2020-06-02",
+                   "accountId": principal, "categoryId": options["categories"][0]["id"]}
+        income = {"merchant": "Sueldo", "amount": "300", "date": "2021-02-03",
+                  "accountId": principal, "categoryId": options["incomeCategories"][0]["id"]}
+        self.assertEqual(self.write(self.client, "POST", "/api/gastos", expense).status_code, 201)
+        self.assertEqual(self.write(self.client, "POST", "/api/ingresos", income).status_code, 201)
+        transfer = {"amount": "25.50", "date": "2022-01-01", "sourceAccountId": expense["accountId"],
+                    "destinationAccountId": self.second_account, "note": "Ahorro"}
+        self.assertEqual(self.write(self.client, "POST", "/api/transferencias", transfer).status_code, 201)
+        self.assertEqual(self.write(self.other, "POST", "/api/gastos",
+                                    {**expense, "accountId": other["accounts"][0]["id"],
+                                     "categoryId": other["categories"][0]["id"]}).status_code, 201)
+        with psycopg.connect(dbname=self.database) as conn:
+            historical_member = conn.execute(
+                """INSERT INTO finance.member (household_id, name, is_active)
+                   SELECT household_id, 'Histórico', false FROM finance.account WHERE account_id = %s
+                   RETURNING member_id""", (expense["accountId"],),
+            ).fetchone()[0]
+            conn.execute(
+                """INSERT INTO finance.transactions (household_id, member_id, account_id, category_id, tx_date, amount, type, merchant)
+                   SELECT household_id, %s, account_id, category_id, '2019-01-01', 12.50, 'expense', 'Histórico'
+                   FROM finance.transactions WHERE account_id = %s AND type = 'expense'""",
+                (historical_member, expense["accountId"]),
+            )
+        history = self.client.get("/api/movimientos?todos=1")
+        self.assertEqual(history.status_code, 200)
+        rows = history.json()["movements"]
+        self.assertEqual([row["description"] for row in rows], ["Ahorro", "Sueldo", "Compra", "Histórico"])
+        self.assertEqual([row["editable"] for row in rows[1:]], [True, True, False])
+        self.assertEqual(rows[-1]["amount"], "12.50")
+        self.assertEqual(len(self.other.get("/api/movimientos?todos=1").json()["movements"]), 1)
+        self.assertEqual(len(self.client.get("/api/movimientos?mes=2020-06").json()["movements"]), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

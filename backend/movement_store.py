@@ -97,14 +97,16 @@ class MovementStore:
                        'date', to_char(t.tx_date, 'YYYY-MM-DD'), 'type', t.type,
                        'description', COALESCE(NULLIF(BTRIM(t.merchant), ''), NULLIF(BTRIM(t.note), ''), 'Sin descripción'),
                        'amount', t.amount::text, 'merchant', t.merchant, 'accountId', t.account_id,
-                       'categoryId', t.category_id, 'category', c.name, 'account', a.name
+                       'categoryId', t.category_id, 'category', c.name, 'account', a.name,
+                       'editable', COALESCE(t.member_id = %(member)s, false)
                      ) AS movement, t.tx_date AS sort_date, t.transaction_id AS sort_id, t.type, t.amount
                      FROM finance.transactions t
                      JOIN finance.account a ON a.account_id = t.account_id AND a.household_id = t.household_id
                      LEFT JOIN finance.category c ON c.category_id = t.category_id AND c.household_id = t.household_id
-                     WHERE t.household_id = %(household)s AND t.member_id = %(member)s AND t.type IN ('income', 'expense')
-                       AND t.tx_date >= (%(month)s || '-01')::date
-                       AND t.tx_date < ((%(month)s || '-01')::date + interval '1 month')
+                     WHERE t.household_id = %(household)s AND t.type IN ('income', 'expense')
+                       AND (t.member_id = %(member)s OR (%(month)s::text IS NULL AND t.type = 'expense'))
+                       AND (%(month)s::text IS NULL OR (t.tx_date >= (%(month)s || '-01')::date
+                         AND t.tx_date < ((%(month)s || '-01')::date + interval '1 month')))
                      UNION ALL
                      SELECT json_build_object(
                        'id', 'transfer-' || tr.transfer_id::text, 'date', to_char(tr.tx_date, 'YYYY-MM-DD'),
@@ -117,8 +119,8 @@ class MovementStore:
                      JOIN finance.account source ON source.account_id = tr.source_account_id AND source.household_id = tr.household_id
                      JOIN finance.account destination ON destination.account_id = tr.destination_account_id AND destination.household_id = tr.household_id
                      WHERE tr.household_id = %(household)s AND tr.member_id = %(member)s
-                       AND tr.tx_date >= (%(month)s || '-01')::date
-                       AND tr.tx_date < ((%(month)s || '-01')::date + interval '1 month')
+                       AND (%(month)s::text IS NULL OR (tr.tx_date >= (%(month)s || '-01')::date
+                         AND tr.tx_date < ((%(month)s || '-01')::date + interval '1 month')))
                    ) entries""",
                 {"household": member["household_id"], "member": member["member_id"], "month": month},
             ).fetchone()

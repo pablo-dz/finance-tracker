@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Mis finanzas</title>
-  <link rel="stylesheet" href="/styles.css?v=7">
-  <script src="/dashboard.js?v=7" type="module"></script>
+  <link rel="stylesheet" href="/styles.css?v=10">
+  <script src="/dashboard.js?v=10" type="module"></script>
 </head>
 <body>
   <header>
@@ -54,6 +54,7 @@
     <div id="app-content" hidden>
     <nav class="app-nav" aria-label="Secciones principales">
       <button type="button" id="nav-dashboard" aria-controls="dashboard-view" aria-current="page">Dashboard</button>
+      <button type="button" id="nav-movements" aria-controls="movements-view">Movimientos</button>
       <button type="button" id="nav-savings" aria-controls="savings-panel">Metas de ahorro</button>
       <button type="button" id="nav-categories" aria-controls="category-panel">Categorías</button>
     </nav>
@@ -75,7 +76,6 @@
       </div>
     </div>
     <p class="notice">Tus movimientos quedan asociados a tu cuenta. La aplicación funciona localmente en este equipo.</p>
-    <p id="movement-status" role="status" aria-live="polite"></p>
     <section id="results" hidden aria-label="Resumen de gastos">
       <section id="financial-dashboard" class="panel" aria-labelledby="dashboard-title">
         <p class="eyebrow">TU PANORAMA FINANCIERO</p>
@@ -186,50 +186,13 @@
           <button id="save-opening-balance" type="submit" disabled>Guardar saldo inicial</button>
         </form>
       </section>
-      <section class="panel">
-        <p class="eyebrow">DISTRIBUCIÓN</p>
-        <h2>Gastos por categoría</h2>
-        <p class="chart-description">Proporción de cada categoría respecto al total del mes.</p>
-        <p id="empty" hidden>No hay gastos para este mes.</p>
-        <ul id="categories" aria-label="Distribución de gastos por categoría"></ul>
-      </section>
-      <section class="panel" id="report-panel" hidden>
-        <p class="eyebrow">HISTORIAL PERSONAL</p>
-        <h2>Evolución de tus gastos</h2>
-        <p class="chart-description">Gastos personales en CLP. El mes final es el seleccionado arriba; los meses sin gastos aparecen con total cero y cuentan en el promedio.</p>
-        <label for="report-period">Período</label>
-        <select id="report-period">
-          <option value="3">Últimos 3 meses</option>
-          <option value="6" selected>Últimos 6 meses</option>
-          <option value="12">Últimos 12 meses</option>
-        </select>
-        <p id="report-status" role="status" aria-live="polite"></p>
-        <div class="report-totals">
-          <p>Total del período <strong id="report-total"></strong></p>
-          <p>Promedio mensual <strong id="report-average"></strong></p>
-        </div>
-        <h3>Gasto por mes</h3>
-        <p id="report-empty" hidden>No hay gastos registrados en este período.</p>
-        <ul id="report-monthly" aria-label="Gastos por mes"></ul>
-        <h3>Gasto por categoría</h3>
-        <ul id="report-categories" aria-label="Gastos por categoría en el período"></ul>
-      </section>
-      <section class="panel">
-        <p class="eyebrow">DETALLE DEL MES</p>
-        <h2>Movimientos</h2>
-        <p id="movements-empty" hidden>No hay movimientos para este mes.</p>
-        <ul id="movements" aria-label="Gastos del mes"></ul>
-      </section>
-      <section class="panel" id="income-movements-panel" hidden>
-        <p class="eyebrow">OTROS MOVIMIENTOS DEL MES</p>
-        <h2>Ingresos y transferencias</h2>
-        <p id="income-movements-empty" hidden>No hay ingresos ni transferencias para este mes.</p>
-        <ul id="income-movements" aria-label="Ingresos y transferencias del mes"></ul>
-      </section>
     </section>
-    <section class="panel" id="registration">
-      <p class="eyebrow">REGISTRO PERSONAL</p>
-      <h2 id="form-title">Registrar gasto</h2>
+    </div>
+    <div id="movements-view" hidden>
+    <h1>Movimientos</h1>
+    <p class="chart-description">Registra y consulta tus ingresos y egresos de todos los meses.</p>
+    <details class="panel movement-form" id="registration">
+      <summary id="form-title">Registrar egreso</summary>
       <p>Registra un gasto en tus finanzas personales.</p>
       <form id="expense-form">
         <div class="form-grid">
@@ -255,10 +218,9 @@
           <button id="cancel-edit" class="secondary-button" type="button" hidden>Cancelar edición</button>
         </div>
       </form>
-    </section>
-    <section class="panel" id="income-registration">
-      <p class="eyebrow">MOVIMIENTO ENTRE CUENTAS</p>
-      <h2 id="income-form-title">Registrar ingreso</h2>
+    </details>
+    <details class="panel movement-form" id="income-registration">
+      <summary id="income-form-title">Registrar ingreso</summary>
       <form id="income-form">
         <div class="form-grid">
           <label>Descripción
@@ -283,10 +245,9 @@
           <button id="cancel-income-edit" class="secondary-button" type="button" hidden>Cancelar edición</button>
         </div>
       </form>
-    </section>
-    <section class="panel" id="transfer-registration">
-      <p class="eyebrow">MOVIMIENTO ENTRE CUENTAS</p>
-      <h2 id="transfer-form-title">Transferir entre cuentas</h2>
+    </details>
+    <details class="panel movement-form" id="transfer-registration">
+      <summary id="transfer-form-title">Transferir entre cuentas</summary>
       <form id="transfer-form">
         <div class="form-grid">
           <label>Monto en CLP
@@ -311,6 +272,50 @@
           <button id="cancel-transfer-edit" class="secondary-button" type="button" hidden>Cancelar edición</button>
         </div>
       </form>
+    </details>
+    <section class="panel" aria-labelledby="movement-filter-title">
+      <h2 id="movement-filter-title">Filtrar movimientos</h2>
+      <form id="movement-filter-form">
+        <div class="form-grid">
+          <label>Desde
+            <input name="from" type="date" min="1900-01-01" max="9999-12-31">
+          </label>
+          <label>Hasta
+            <input name="to" type="date" min="1900-01-01" max="9999-12-31">
+          </label>
+          <label>Tipo
+            <select name="type">
+              <option value="">Todos los tipos</option>
+              <option value="income">Ingresos</option>
+              <option value="expense">Egresos</option>
+              <option value="transfer">Transferencias</option>
+            </select>
+          </label>
+          <label>Categoría
+            <select name="category"><option value="">Todas las categorías</option></select>
+          </label>
+          <label>Descripción
+            <input name="description" type="search" placeholder="Buscar descripción">
+          </label>
+          <label>Cuenta
+            <select name="account"><option value="">Todas las cuentas</option></select>
+          </label>
+        </div>
+        <p class="filter-note">Las transferencias no tienen categoría. Al filtrar por cuenta se incluye el origen o destino.</p>
+        <p id="movement-filter-status" role="status" aria-live="polite"></p>
+        <button id="clear-movement-filters" type="button" class="secondary-button">Limpiar filtros</button>
+      </form>
+    </section>
+    <section class="panel" aria-labelledby="movement-list-title">
+      <h2 id="movement-list-title">Ingresos y egresos</h2>
+      <p id="movement-status" role="status" aria-live="polite"></p>
+      <p id="movements-empty" hidden>No hay ingresos ni egresos registrados.</p>
+      <ul id="movements" aria-label="Historial de ingresos y egresos"></ul>
+    </section>
+    <section class="panel" aria-labelledby="transfers-title">
+      <h2 id="transfers-title">Transferencias</h2>
+      <p id="transfer-movements-empty" hidden>No hay transferencias registradas.</p>
+      <ul id="transfer-movements" aria-label="Historial de transferencias"></ul>
     </section>
     </div>
     <div id="category-panel" hidden>

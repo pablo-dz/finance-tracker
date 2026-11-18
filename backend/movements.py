@@ -94,7 +94,9 @@ async def read_movements(request: Request, store: AuthStore = Depends(get_store)
         return json_response({"error": "Inicia sesión para continuar."}, 401)
     if request.url.path == "/api/movimientos":
         months = request.query_params.getlist("mes")
-        if len(months) != 1 or not valid_month(months[0]):
+        all_periods = request.query_params.getlist("todos")
+        if not ((len(months) == 1 and valid_month(months[0]) and not all_periods)
+                or (not months and all_periods == ["1"])):
             return json_response({"error": "Selecciona un mes válido."}, 400)
         message = "Configura un hogar personal en CLP con un único integrante activo."
     else:
@@ -104,7 +106,7 @@ async def read_movements(request: Request, store: AuthStore = Depends(get_store)
         return error
     result = await run_in_threadpool(
         movements.movements if request.url.path == "/api/movimientos" else movements.options,
-        *([member, months[0]] if request.url.path == "/api/movimientos" else [member]),
+        *([member, months[0] if months else None] if request.url.path == "/api/movimientos" else [member]),
     )
     return json_response(result)
 

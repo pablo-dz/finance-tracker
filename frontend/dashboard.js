@@ -1,15 +1,15 @@
 import {
-  monthInput, movementStatus, expenseForm, reportPeriod,
+  monthInput, movementStatus, expenseForm,
   todayText, state,
-} from "./modules/common.js?v=7";
-import { initializeAuthentication } from "./modules/auth.js?v=7";
-import { loadExpenses } from "./modules/expenses.js?v=7";
-import { loadPersonalReport } from "./modules/reports.js?v=7";
-import { prepareBudgetMonth } from "./modules/planning.js?v=7";
+} from "./modules/common.js?v=10";
+import { initializeAuthentication } from "./modules/auth.js?v=10";
+import { loadExpenses } from "./modules/expenses.js?v=10";
+import { prepareBudgetMonth } from "./modules/planning.js?v=10";
 
 const form = document.querySelector("#month-form");
 const views = [
   [document.querySelector("#nav-dashboard"), document.querySelector("#dashboard-view")],
+  [document.querySelector("#nav-movements"), document.querySelector("#movements-view")],
   [document.querySelector("#nav-savings"), document.querySelector("#savings-panel")],
   [document.querySelector("#nav-categories"), document.querySelector("#category-panel")],
 ];
@@ -20,7 +20,7 @@ function showView(selected) {
     if (button === selected) button.setAttribute("aria-current", "page");
     else button.removeAttribute("aria-current");
   }
-  form.hidden = selected.id === "nav-savings";
+  form.hidden = selected.id === "nav-savings" || selected.id === "nav-movements";
   document.querySelector("#message").hidden = form.hidden;
 }
 
@@ -37,8 +37,5 @@ form.addEventListener("submit", (event) => {
   }
   movementStatus.textContent = "";
   loadExpenses(monthInput.value);
-});
-reportPeriod.addEventListener("change", () => {
-  loadPersonalReport(monthInput.value);
 });
 initializeAuthentication();

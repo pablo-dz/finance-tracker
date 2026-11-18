@@ -1,21 +1,15 @@
 import {
   monthInput, movementStatus, expenseForm, formMessage,
-  saveButton, displayName, todayText,
+  saveButton, todayText,
   formatMoney, state,
-} from "./common.js?v=7";
-import { loadMovements, refreshAccounts } from "./movements.js?v=7";
-import { beginBudgetLoad, budgetLoadFailed, loadBudgets, selectMovementMonth } from "./planning.js?v=7";
-import { loadPersonalReport } from "./reports.js?v=7";
-import { expenseShare } from "../chart.js?v=7";
-import { loadDashboard } from "./analytics.js?v=7";
+} from "./common.js?v=10";
+import { loadMovements, loadMovementHistory, refreshAccounts } from "./movements.js?v=10";
+import { beginBudgetLoad, budgetLoadFailed, loadBudgets, selectMovementMonth } from "./planning.js?v=10";
+import { loadDashboard } from "./analytics.js?v=10";
 
 const message = document.querySelector("#message");
 const results = document.querySelector("#results");
-const list = document.querySelector("#categories");
-const movements = document.querySelector("#movements");
 const cancelEditButton = document.querySelector("#cancel-edit");
-const incomeMovementsPanel = document.querySelector("#income-movements-panel");
-const reportPanel = document.querySelector("#report-panel");
 
 let currentRequest = 0;
 let editingId = null;
@@ -25,12 +19,13 @@ function resetExpenseForm() {
   editingId = null;
   expenseForm.reset();
   expenseForm.elements.date.value = todayText;
-  document.querySelector("#form-title").textContent = "Registrar gasto";
+  document.querySelector("#form-title").textContent = "Registrar egreso";
   saveButton.textContent = "Guardar gasto";
   cancelEditButton.hidden = true;
 }
 
-function editExpense(expense) {
+export function editExpense(expense) {
+  document.querySelector("#registration").open = true;
   if (deleting) {
     movementStatus.textContent = "Espera a que termine la eliminación.";
     return;
@@ -52,7 +47,7 @@ function editExpense(expense) {
   expenseForm.elements.date.value = expense.date;
   expenseForm.elements.categoryId.value = String(expense.categoryId ?? "");
   expenseForm.elements.accountId.value = String(expense.accountId);
-  document.querySelector("#form-title").textContent = "Editar gasto";
+  document.querySelector("#form-title").textContent = "Editar egreso";
   saveButton.textContent = "Guardar cambios";
   cancelEditButton.hidden = false;
   formMessage.textContent = expense.merchant && expenseForm.elements.categoryId.value && expenseForm.elements.accountId.value
@@ -62,7 +57,7 @@ function editExpense(expense) {
   expenseForm.elements.merchant.focus();
 }
 
-async function deleteExpense(expense, button) {
+export async function deleteExpense(expense, button) {
   if (state.saving || deleting) {
     movementStatus.textContent = "Espera a que termine la operación en curso.";
     return;
@@ -106,13 +101,11 @@ async function deleteExpense(expense, button) {
 
 export async function loadExpenses(month = state.displayedBudgetMonth || state.budgetMonth || monthInput.value) {
   const requestId = ++currentRequest;
-  ++state.reportRequest;
+  const historyRequest = loadMovementHistory();
   beginBudgetLoad(month);
   state.displayedBudgetMonth = null;
-  incomeMovementsPanel.hidden = false;
   document.querySelector("#accounts-panel").hidden = false;
   document.querySelector("#income-card").hidden = false;
-  reportPanel.hidden = false;
   results.hidden = true;
   message.textContent = "Cargando gastos...";
   try {
@@ -121,90 +114,20 @@ export async function loadExpenses(month = state.displayedBudgetMonth || state.b
     if (requestId !== currentRequest) return false;
     if (!response.ok) throw new Error(data.error || "No fue posible consultar los gastos.");
 
-    list.replaceChildren();
-    let count = 0;
-    for (const category of data.categories) {
-      count += category.count;
-      const share = expenseShare(category.total, data.total);
-      const item = document.createElement("li");
-      const detail = document.createElement("div");
-      const name = document.createElement("span");
-      const value = document.createElement("strong");
-      const percent = document.createElement("span");
-      const track = document.createElement("div");
-      const bar = document.createElement("div");
-      name.textContent = displayName(category.category);
-      value.textContent = formatMoney(category.total);
-      percent.textContent = ` · ${share.label}`;
-      percent.className = "category-percent";
-      value.append(percent);
-      detail.className = "category-detail";
-      detail.append(name, value);
-      track.className = "chart-track";
-      track.setAttribute("aria-hidden", "true");
-      bar.className = "chart-bar";
-      bar.style.width = `${share.width}%`;
-      track.append(bar);
-      item.append(detail, track);
-      list.append(item);
-    }
+    const count = data.categories.reduce((total, category) => total + category.count, 0);
     document.querySelector("#total").textContent = formatMoney(data.total);
     document.querySelector("#count").textContent = String(count);
-    document.querySelector("#empty").hidden = data.categories.length !== 0;
-    movements.replaceChildren();
-    for (const expense of data.expenses) {
-      const item = document.createElement("li");
-      const detail = document.createElement("div");
-      const description = document.createElement("strong");
-      const metadata = document.createElement("div");
-      const date = document.createElement("time");
-      const category = document.createElement("span");
-      const amount = document.createElement("strong");
-      const actions = document.createElement("div");
-      item.className = "movement";
-      detail.className = "movement-detail";
-      metadata.className = "movement-meta";
-      description.textContent = expense.description;
-      date.dateTime = expense.date;
-      date.textContent = expense.date.split("-").reverse().join("/");
-      category.textContent = displayName(expense.category);
-      metadata.append(date, document.createTextNode(" · "), category);
-      detail.append(description, metadata);
-      amount.textContent = formatMoney(expense.amount);
-      amount.className = "movement-amount";
-      actions.className = "movement-actions";
-      actions.append(amount);
-      if (expense.editable) {
-        const editButton = document.createElement("button");
-        editButton.type = "button";
-        editButton.className = "edit-button";
-        editButton.textContent = "Editar";
-        editButton.setAttribute("aria-label", `Editar ${expense.description}`);
-        editButton.addEventListener("click", () => editExpense(expense));
-        actions.append(editButton);
-        const deleteButton = document.createElement("button");
-        deleteButton.type = "button";
-        deleteButton.className = "delete-button";
-        deleteButton.textContent = "Eliminar";
-        deleteButton.setAttribute("aria-label", `Eliminar ${expense.description} del ${expense.date.split("-").reverse().join("/")} por ${formatMoney(expense.amount)}`);
-        deleteButton.addEventListener("click", () => deleteExpense(expense, deleteButton));
-        actions.append(deleteButton);
-      }
-      item.append(detail, actions);
-      movements.append(item);
-    }
-    document.querySelector("#movements-empty").hidden = data.expenses.length !== 0;
     message.textContent = "";
     results.hidden = false;
     state.displayedBudgetMonth = month;
-    const [, budgetsLoaded] = await Promise.all([
+    const [movementsLoaded, budgetsLoaded, historyLoaded] = await Promise.all([
       loadMovements(month),
       loadBudgets(month),
-      loadPersonalReport(month),
+      historyRequest,
       loadDashboard(month),
     ]);
     if (requestId !== currentRequest) return false;
-    return budgetsLoaded;
+    return budgetsLoaded && movementsLoaded && historyLoaded;
   } catch (error) {
     if (requestId !== currentRequest) return false;
     message.textContent = error instanceof Error ? error.message : "No fue posible consultar los gastos.";

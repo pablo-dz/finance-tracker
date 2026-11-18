@@ -92,7 +92,7 @@ def dashboard_asset(filename: str):
 
 @app.get("/modules/{filename}", include_in_schema=False)
 def dashboard_module(filename: str):
-    modules = {"auth.js", "common.js", "expenses.js", "movements.js", "planning.js", "reports.js",
+    modules = {"auth.js", "common.js", "expenses.js", "movements.js", "planning.js",
                "savings.js", "analytics.js", "visualizations.js"}
     if filename not in modules:
         return json_response({"error": "No encontrado."}, 404)
