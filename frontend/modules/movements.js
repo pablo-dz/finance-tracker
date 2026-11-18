@@ -3,10 +3,10 @@ import {
   saveButton, incomeFormMessage,
   transferFormMessage, displayName, todayText, formatMoney,
   state,
-} from "./common.js?v=6";
-import { loadExpenses } from "./expenses.js?v=6";
-import { selectMovementMonth } from "./planning.js?v=6";
-import { refreshDashboard } from "./analytics.js?v=6";
+} from "./common.js?v=7";
+import { loadExpenses } from "./expenses.js?v=7";
+import { selectMovementMonth } from "./planning.js?v=7";
+import { refreshDashboard } from "./analytics.js?v=7";
 
 const incomeForm = document.querySelector("#income-form");
 const saveIncomeButton = document.querySelector("#save-income");

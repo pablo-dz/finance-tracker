@@ -1,5 +1,5 @@
-import { displayName, formatMoney, state } from "./common.js?v=6";
-import { budgetChart, lineChart, donutChart, pieChart3D } from "./visualizations.js?v=6";
+import { displayName, formatMoney, state } from "./common.js?v=7";
+import { budgetChart, lineChart, pieChart3D } from "./visualizations.js?v=7";
 
 const status = document.querySelector("#dashboard-status");
 const content = document.querySelector("#dashboard-content");
@@ -15,8 +15,6 @@ const categoryEvolutionValues = document.querySelector("#category-evolution-valu
 const paceNote = document.querySelector("#dashboard-pace-note");
 const paceList = document.querySelector("#dashboard-pace");
 const paceChart = document.querySelector("#dashboard-pace-chart");
-const fixedList = document.querySelector("#dashboard-fixed");
-const fixedChart = document.querySelector("#dashboard-fixed-chart");
 const recurringList = document.querySelector("#recurring-list");
 const recurringStatus = document.querySelector("#recurring-status");
 const recurringTotals = document.querySelector("#recurring-totals");
@@ -85,9 +83,24 @@ function renderSummary(data) {
   const rate = current.savingRate === null ? "Sin ingresos" : `${current.savingRate.replace(".", ",")} %`;
   const previousRate = previous.savingRate === null ? "Sin ingresos el mes anterior"
     : `${previous.savingRate.replace(".", ",")} % el mes anterior`;
+  const totals = { fixed: 0n, variable: 0n, unknown: 0n };
+  for (const row of data.categories.filter((entry) => entry.month === data.month)) {
+    totals[row.fixed === null ? "unknown" : row.fixed ? "fixed" : "variable"] += cents(row.amount);
+  }
+  const expenses = metric("Gastos", formatMoney(current.expenses), delta(current.expenses, previous.expenses));
+  const breakdown = node("dl", undefined, "expense-breakdown");
+  breakdown.setAttribute("aria-label", "Desglose de gastos");
+  const entries = [["Fijos", totals.fixed], ["Variables", totals.variable]];
+  if (totals.unknown !== 0n) entries.push(["Sin clasificar", totals.unknown]);
+  for (const [label, value] of entries) {
+    const row = node("div", undefined, "expense-breakdown-row");
+    row.append(node("dt", label), node("dd", money(value)));
+    breakdown.append(row);
+  }
+  expenses.insertBefore(breakdown, expenses.querySelector("small"));
   summary.replaceChildren(
     metric("Ingresos", formatMoney(current.income), delta(current.income, previous.income)),
-    metric("Gastos", formatMoney(current.expenses), delta(current.expenses, previous.expenses)),
+    expenses,
     metric("Ahorro neto", formatMoney(current.saving), delta(current.saving, previous.saving)),
     metric("Tasa de ahorro", rate, previousRate),
   );
@@ -258,25 +271,6 @@ function renderPace(data) {
   }
 }
 
-function renderFixed(data) {
-  const totals = { fixed: 0n, variable: 0n, unknown: 0n };
-  for (const row of data.categories.filter((entry) => entry.month === data.month)) {
-    totals[row.fixed === null ? "unknown" : row.fixed ? "fixed" : "variable"] += cents(row.amount);
-  }
-  fixedList.replaceChildren();
-  const max = totals.fixed + totals.variable + totals.unknown;
-  donutChart(fixedChart, [
-    { name: "Fijos", value: totals.fixed },
-    { name: "Variables", value: totals.variable },
-    { name: "Sin clasificar", value: totals.unknown },
-  ], money);
-  for (const [label, value] of [["Fijos", totals.fixed], ["Variables", totals.variable], ["Sin clasificar", totals.unknown]]) {
-    const item = node("li", undefined, "dashboard-chart-item");
-    item.append(node("strong", `${label}: ${money(value)}`), bar(value, max));
-    fixedList.append(item);
-  }
-}
-
 function renderGoals(goals) {
   goalList.replaceChildren();
   if (!goals.length) return empty(goalList, "No hay metas de ahorro.");
@@ -413,7 +407,6 @@ export async function loadDashboard(month) {
     renderTrend(data);
     renderCategories(data);
     renderPace(data);
-    renderFixed(data);
     renderGoals(data.goals);
     renderBalances(data);
     renderTop(data);

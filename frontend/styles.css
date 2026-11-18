@@ -110,6 +110,10 @@ li { border-top: 1px solid #edf1ed; padding: 15px 0; }
 .dashboard-metric { background: #f3f8f3; border-radius: 8px; padding: 14px; min-width: 0; }
 .dashboard-metric span, .dashboard-metric small { display: block; color: #64766a; font-size: 12px; }
 .dashboard-metric strong { display: block; font-size: 21px; margin: 8px 0; overflow-wrap: anywhere; }
+.expense-breakdown { margin: 8px 0; padding: 8px 0; border-top: 1px solid #dce8dd; border-bottom: 1px solid #dce8dd; font-size: 12px; }
+.expense-breakdown-row { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 8px; color: #64766a; }
+.expense-breakdown-row + .expense-breakdown-row { margin-top: 4px; }
+.expense-breakdown-row dd { margin: 0; color: #1d3228; font-weight: 600; overflow-wrap: anywhere; }
 .dashboard-section { border-top: 1px solid #e1e9e1; margin-top: 16px; padding-top: 14px; }
 .dashboard-section summary { cursor: pointer; color: #1f6041; font-weight: 700; }
 .dashboard-section > p, .dashboard-chart-item p, .dashboard-recurring p { color: #64766a; font-size: 13px; }

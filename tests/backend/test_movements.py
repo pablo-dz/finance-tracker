@@ -151,9 +151,9 @@ class DashboardTest(unittest.TestCase):
                 self.assertEqual(response.status_code, 200)
                 self.assertTrue(response.headers["content-type"].startswith(content_type))
                 self.assertEqual(response.headers["cache-control"], "no-cache")
-            self.assertEqual(client.get("/styles.css?v=6").status_code, 200)
-            self.assertEqual(client.get("/dashboard.js?v=6").status_code, 200)
-            self.assertEqual(client.get("/modules/planning.js?v=6").status_code, 200)
+            self.assertEqual(client.get("/styles.css?v=7").status_code, 200)
+            self.assertEqual(client.get("/dashboard.js?v=7").status_code, 200)
+            self.assertEqual(client.get("/modules/planning.js?v=7").status_code, 200)
             self.assertEqual(client.get("/server.js").status_code, 404)
             self.assertEqual(client.get("/modules/unknown.js").status_code, 404)
 

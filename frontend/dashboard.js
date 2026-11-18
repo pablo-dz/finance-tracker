@@ -1,11 +1,11 @@
 import {
   monthInput, movementStatus, expenseForm, reportPeriod,
   todayText, state,
-} from "./modules/common.js?v=6";
-import { initializeAuthentication } from "./modules/auth.js?v=6";
-import { loadExpenses } from "./modules/expenses.js?v=6";
-import { loadPersonalReport } from "./modules/reports.js?v=6";
-import { prepareBudgetMonth } from "./modules/planning.js?v=6";
+} from "./modules/common.js?v=7";
+import { initializeAuthentication } from "./modules/auth.js?v=7";
+import { loadExpenses } from "./modules/expenses.js?v=7";
+import { loadPersonalReport } from "./modules/reports.js?v=7";
+import { prepareBudgetMonth } from "./modules/planning.js?v=7";
 
 const form = document.querySelector("#month-form");
 const views = [

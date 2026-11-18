@@ -1,7 +1,7 @@
 import {
   reportPeriod, displayName, formatMoney, moneyInCents,
   state,
-} from "./common.js?v=6";
+} from "./common.js?v=7";
 
 const reportStatus = document.querySelector("#report-status");
 const reportMonthly = document.querySelector("#report-monthly");

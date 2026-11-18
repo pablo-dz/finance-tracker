@@ -275,6 +275,10 @@ test("los módulos coordinan la sesión, los movimientos y la planificación", a
   assert.equal(element("#nav-dashboard").getAttribute("aria-current"), "page");
   assert.equal(element("#budget-panel"), null);
   assert.match(element("#dashboard-summary").textContent, /Sin ingresos/);
+  assert.deepEqual([...element('[aria-label="Desglose de gastos"]').querySelectorAll(".expense-breakdown-row")]
+    .map((row) => row.textContent), ["Fijos$0", "Variables$0"]);
+  assert.equal(element("#dashboard-fixed-chart"), null);
+  assert.equal([...window.document.querySelectorAll("summary")].some((item) => item.textContent === "Gastos fijos y variables"), false);
   assert.equal(element("#dashboard-trend-chart svg").getAttribute("aria-hidden"), "true");
   for (const selector of ["#dashboard-trend-chart", "#dashboard-balance-chart"]) {
     assert.equal(element(`${selector} .visualization-axis-x`).textContent, "Mes");
@@ -292,11 +296,17 @@ test("los módulos coordinan la sesión, los movimientos y la planificación", a
     { id: 2, name: "Groceries", month: "2024-12", amount: "75", fixed: false },
     { id: null, name: "Sin categoría", month: "2024-11", amount: "40", fixed: null },
     { id: null, name: "Sin categoría", month: "2024-12", amount: "25", fixed: null },
+    { id: 10, name: "Servicio", month: "2024-12", amount: "12.34", fixed: true },
     { id: 9, name: "Histórica", month: "2024-02", amount: "15", fixed: false },
   ];
   submit("#month-form");
   await waitFor(() => element("#category-evolution-title").textContent === "Evolución: Supermercado"
     && !element("#dashboard-content").hidden);
+  const expensesMetric = element('[aria-label="Desglose de gastos"]').closest(".dashboard-metric");
+  assert.equal(expensesMetric.querySelector("span").textContent, "Gastos");
+  assert.deepEqual([...expensesMetric.querySelectorAll(".expense-breakdown-row")].map((row) => row.textContent),
+    ["Fijos$12,34", "Variables$75", "Sin clasificar$25"]);
+  assert.ok(expensesMetric.querySelector("small").textContent.includes("frente al mes anterior"));
   assert.ok(element("#dashboard-trend").classList.contains("visually-hidden"));
   assert.equal([...window.document.querySelectorAll("summary")].some((item) => item.textContent === "Ver datos mensuales"), false);
   const trendPoint = element("#dashboard-trend-chart .visualization-point-target");
@@ -719,8 +729,9 @@ test("los módulos coordinan la sesión, los movimientos y la planificación", a
   submit("#month-form");
   await waitFor(() => !element("#results").hidden && !element("#dashboard-content").hidden);
 
-  await waitFor(() => element("#dashboard-fixed").textContent.includes("Fijos: $1.200"));
-  assert.match(element("#dashboard-fixed-chart").textContent, /Fijos.*\$1.200/);
+  await waitFor(() => element('[aria-label="Desglose de gastos"]').textContent.includes("Fijos$1.200"));
+  assert.deepEqual([...element('[aria-label="Desglose de gastos"]').querySelectorAll(".expense-breakdown-row")]
+    .map((row) => row.textContent), ["Fijos$1.200", "Variables$0"]);
 
   const viewedMonth = element("#month").value;
   element("#month").value = "2020-03";
