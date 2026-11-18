@@ -24,6 +24,7 @@ h1 { margin: 8px 0; font-size: clamp(28px, 5vw, 38px); }
 .intro p:not(.eyebrow) { color: #64766a; }
 label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 7px; }
 .filters { display: flex; gap: 8px; align-items: end; }
+.month-selector { margin-bottom: 24px; }
 .filters label { margin: 0; }
 .filters input, .filters select { display: block; margin-top: 7px; }
 input, select, button { font: inherit; border-radius: 7px; padding: 10px; }
@@ -79,12 +80,6 @@ li { border-top: 1px solid #edf1ed; padding: 15px 0; }
 .edit-button:hover { color: white; }
 .delete-button { color: #a53d3d; border-color: #dfb4b4; background: white; padding: 5px 8px; font-size: 13px; }
 .delete-button:hover { color: white; background: #a53d3d; border-color: #a53d3d; }
-.budget-item { display: flex; justify-content: space-between; gap: 16px; align-items: center; }
-.budget-item > div { min-width: 0; overflow-wrap: anywhere; }
-.budget-item button { flex-shrink: 0; }
-.budget-item p { color: #64766a; font-size: 13px; margin: 6px 0 0; }
-.budget-item .budget-exceeded { color: #a53d3d; font-weight: 600; }
-#budget-form { border-top: 1px solid #edf1ed; padding-top: 10px; }
 #opening-balance-form { border-top: 1px solid #edf1ed; padding-top: 10px; }
 .account-item { display: flex; justify-content: space-between; gap: 16px; }
 .account-item strong { white-space: nowrap; }
@@ -101,12 +96,12 @@ li { border-top: 1px solid #edf1ed; padding: 15px 0; }
 .goal-contributions li > span:first-child { min-width: 0; overflow-wrap: anywhere; }
 #savings-goal-form, #savings-contribution-form { border-top: 1px solid #edf1ed; padding-top: 10px; }
 #savings-title + .chart-description { margin-top: 8px; }
-.managed-category { display: grid; grid-template-columns: 82px minmax(0, 1fr) 120px auto; gap: 10px; align-items: center; }
+.managed-category { display: grid; grid-template-columns: 82px minmax(0, 1fr) 120px minmax(130px, 170px) auto; gap: 10px; align-items: center; }
 .category-state { color: #368b5f; font-size: 12px; font-weight: 600; }
 .category-state.archived { color: #718377; }
 .managed-category > input { width: 100%; }
-.category-type { margin: 0; color: #64766a; }
-.category-type select { display: block; width: 100%; margin-top: 4px; }
+.category-type, .category-budget { margin: 0; color: #64766a; }
+.category-type select, .category-budget input { display: block; width: 100%; margin-top: 4px; }
 #category-title + .chart-description { margin-top: 8px; }
 .category-description { color: #64766a; font-size: 13px; }
 #category-form { border-top: 1px solid #edf1ed; margin-top: 10px; padding-top: 10px; }

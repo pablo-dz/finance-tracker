@@ -48,12 +48,23 @@ async def save_categories(request: Request, store: AuthStore = Depends(get_store
                     and type(expected.get("fixed")) is bool):
                 return json_response({"error": "Revisa los datos de las categorías."}, 400)
             ids.add(identifier)
+        if "budget" in change:
+            budget = change["budget"]
+            if not (isinstance(budget, dict) and valid_month(budget.get("month"))
+                    and change["active"]
+                    and (budget.get("amount") is None or valid_amount(budget.get("amount")))
+                    and (budget.get("expectedAmount") is None
+                         or valid_amount(budget.get("expectedAmount"), expected=True))
+                    and "amount" in budget and "expectedAmount" in budget
+                    and (budget["amount"] is not None or budget["expectedAmount"] is not None)
+                    and ("id" in change or budget["expectedAmount"] is None)):
+                return json_response({"error": "Revisa los presupuestos del mes."}, 400)
     member, error = await member_for(user, movements, "La configuración personal requiere CLP y una sola persona activa.")
     if error:
         return error
     categories = await run_in_threadpool(planning_store.write_categories, member, changes)
     if categories is None:
-        return json_response({"error": "Las categorías cambiaron o hay nombres duplicados. Revisa y vuelve a cargar antes de guardar."}, 409)
+        return json_response({"error": "Las categorías o presupuestos cambiaron, o hay nombres duplicados. Revisa y vuelve a cargar antes de guardar."}, 409)
     return json_response({"message": "Categorías actualizadas correctamente.", "categories": categories})
 
 

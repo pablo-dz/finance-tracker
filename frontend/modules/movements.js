@@ -1,12 +1,12 @@
 import {
   monthInput, movementStatus, expenseForm, formMessage,
-  saveButton, budgetForm, budgetFormMessage, incomeFormMessage,
+  saveButton, incomeFormMessage,
   transferFormMessage, displayName, todayText, formatMoney,
   state,
-} from "./common.js";
-import { loadExpenses } from "./expenses.js";
-import { updateBudgetForm } from "./planning.js";
-import { refreshDashboard } from "./analytics.js";
+} from "./common.js?v=6";
+import { loadExpenses } from "./expenses.js?v=6";
+import { selectMovementMonth } from "./planning.js?v=6";
+import { refreshDashboard } from "./analytics.js?v=6";
 
 const incomeForm = document.querySelector("#income-form");
 const saveIncomeButton = document.querySelector("#save-income");
@@ -237,7 +237,6 @@ export async function loadOptions() {
       [incomeForm.elements.categoryId, data.incomeCategories],
       [transferForm.elements.sourceAccountId, data.accounts],
       [transferForm.elements.destinationAccountId, data.accounts],
-      [budgetForm.elements.categoryId, data.categories],
     ]) {
       const selectedValue = select.value;
       const placeholder = select.options[0]?.textContent ?? "Selecciona una opción";
@@ -251,9 +250,7 @@ export async function loadOptions() {
       if (values.some((value) => String(value.id) === selectedValue)) select.value = selectedValue;
     }
     renderAccounts(data.accounts);
-    state.budgetOptionsAvailable = data.categories.length > 0;
     incomeOptionsAvailable = data.incomeCategories.length > 0;
-    updateBudgetForm();
     saveButton.disabled = state.saving || !data.accounts.length || !data.categories.length;
     saveIncomeButton.disabled = savingIncome || !data.accounts.length || !incomeOptionsAvailable;
     if (!data.accounts.length || !data.categories.length) {
@@ -268,7 +265,6 @@ export async function loadOptions() {
     return true;
   } catch (error) {
     formMessage.textContent = error instanceof Error ? error.message : "No fue posible cargar el formulario.";
-    budgetFormMessage.textContent = "No fue posible cargar las categorías para configurar presupuestos.";
     return false;
   }
 }
@@ -342,8 +338,8 @@ incomeForm.addEventListener("submit", async (event) => {
     const date = values.get("date");
     resetIncomeForm();
     incomeFormMessage.textContent = isEditing ? "Ingreso actualizado correctamente." : "Ingreso registrado correctamente.";
-    monthInput.value = date.slice(0, 7);
-    await loadExpenses();
+    selectMovementMonth(date.slice(0, 7));
+    await loadExpenses(monthInput.value);
     await refreshAccounts();
   } catch (error) {
     incomeFormMessage.textContent = error instanceof Error ? error.message : "No fue posible guardar el ingreso.";
@@ -393,8 +389,8 @@ transferForm.addEventListener("submit", async (event) => {
     const date = values.get("date");
     resetTransferForm();
     transferFormMessage.textContent = isEditing ? "Transferencia actualizada correctamente." : "Transferencia registrada correctamente.";
-    monthInput.value = date.slice(0, 7);
-    await loadExpenses();
+    selectMovementMonth(date.slice(0, 7));
+    await loadExpenses(monthInput.value);
     await refreshAccounts();
   } catch (error) {
     transferFormMessage.textContent = error instanceof Error ? error.message : "No fue posible guardar la transferencia.";

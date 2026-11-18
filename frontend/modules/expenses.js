@@ -1,13 +1,13 @@
 import {
   monthInput, movementStatus, expenseForm, formMessage,
-  saveButton, budgetPanel, displayName, todayText,
+  saveButton, displayName, todayText,
   formatMoney, state,
-} from "./common.js";
-import { loadMovements, refreshAccounts } from "./movements.js";
-import { updateBudgetForm, loadBudgets } from "./planning.js";
-import { loadPersonalReport } from "./reports.js";
-import { expenseShare } from "../chart.js";
-import { loadDashboard } from "./analytics.js";
+} from "./common.js?v=6";
+import { loadMovements, refreshAccounts } from "./movements.js?v=6";
+import { beginBudgetLoad, budgetLoadFailed, loadBudgets, selectMovementMonth } from "./planning.js?v=6";
+import { loadPersonalReport } from "./reports.js?v=6";
+import { expenseShare } from "../chart.js?v=6";
+import { loadDashboard } from "./analytics.js?v=6";
 
 const message = document.querySelector("#message");
 const results = document.querySelector("#results");
@@ -104,18 +104,15 @@ async function deleteExpense(expense, button) {
   }
 }
 
-export async function loadExpenses(month = monthInput.value) {
+export async function loadExpenses(month = state.displayedBudgetMonth || state.budgetMonth || monthInput.value) {
   const requestId = ++currentRequest;
   ++state.reportRequest;
-  ++state.budgetRequest;
-  state.budgetMonth = null;
+  beginBudgetLoad(month);
   state.displayedBudgetMonth = null;
-  budgetPanel.hidden = false;
   incomeMovementsPanel.hidden = false;
   document.querySelector("#accounts-panel").hidden = false;
   document.querySelector("#income-card").hidden = false;
   reportPanel.hidden = false;
-  updateBudgetForm();
   results.hidden = true;
   message.textContent = "Cargando gastos...";
   try {
@@ -200,17 +197,18 @@ export async function loadExpenses(month = monthInput.value) {
     message.textContent = "";
     results.hidden = false;
     state.displayedBudgetMonth = month;
-    await Promise.all([
+    const [, budgetsLoaded] = await Promise.all([
       loadMovements(month),
       loadBudgets(month),
       loadPersonalReport(month),
       loadDashboard(month),
     ]);
     if (requestId !== currentRequest) return false;
-    return true;
+    return budgetsLoaded;
   } catch (error) {
     if (requestId !== currentRequest) return false;
     message.textContent = error instanceof Error ? error.message : "No fue posible consultar los gastos.";
+    budgetLoadFailed(month);
     return false;
   }
 }
@@ -251,8 +249,8 @@ expenseForm.addEventListener("submit", async (event) => {
     resetExpenseForm();
     formMessage.textContent = isEditing ? "Gasto actualizado correctamente." : "Gasto registrado correctamente.";
     movementStatus.textContent = "";
-    monthInput.value = expense.date.slice(0, 7);
-    await loadExpenses();
+    selectMovementMonth(expense.date.slice(0, 7));
+    await loadExpenses(monthInput.value);
     await refreshAccounts();
   } catch (error) {
     formMessage.textContent = error instanceof Error ? error.message : "No fue posible guardar el gasto.";

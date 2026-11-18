@@ -1,10 +1,10 @@
 import {
   incomeFormMessage, transferFormMessage,
-} from "./common.js";
-import { loadExpenses } from "./expenses.js";
-import { loadOptions, resetIncomeForm, resetTransferForm } from "./movements.js";
-import { loadSavingsGoals } from "./savings.js";
-import { categorySaveInProgress, clearCategoryDrafts, hasUnsavedCategories, loadCategories } from "./planning.js";
+} from "./common.js?v=6";
+import { loadExpenses } from "./expenses.js?v=6";
+import { loadOptions, resetIncomeForm, resetTransferForm } from "./movements.js?v=6";
+import { loadSavingsGoals } from "./savings.js?v=6";
+import { categorySaveInProgress, clearCategoryDrafts, hasUnsavedCategories, loadCategories } from "./planning.js?v=6";
 
 const authPanel = document.querySelector("#auth-panel");
 const authStatus = document.querySelector("#auth-status");

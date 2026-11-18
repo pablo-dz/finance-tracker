@@ -252,6 +252,51 @@ class MovementIntegrationTest(unittest.TestCase):
         self.assertEqual(self.write(self.client, "POST", "/api/categorias/lote",
                                     {"changes": [edit(row), edit(row)]}).status_code, 400)
 
+    def test_category_batch_saves_budgets_atomically_and_detects_conflicts(self):
+        first = self.client.get("/api/dashboard/categorias").json()["categories"][0]
+        def edit(category, **values):
+            return {"id": category["id"], "name": values.get("name", category["name"]),
+                    "active": values.get("active", category["active"]), "fixed": category["fixed"],
+                    "expected": {key: category[key] for key in ("name", "active", "fixed")}}
+        def budget(amount, expected):
+            return {"month": "2020-06", "amount": amount, "expectedAmount": expected}
+        changes = [{**edit(first, name="Actualizada"), "budget": budget("1000", None)},
+                   {"name": "Nueva", "active": True, "fixed": False, "budget": budget("500", None)}]
+        response = self.write(self.client, "POST", "/api/categorias/lote", {"changes": changes})
+        self.assertEqual(response.status_code, 200)
+        first = next(row for row in response.json()["categories"] if row["id"] == first["id"])
+        new = next(row for row in response.json()["categories"] if row["name"] == "Nueva")
+        rows = self.client.get("/api/presupuestos?mes=2020-06").json()["categories"]
+        self.assertEqual(next(row["budget"] for row in rows if row["categoryId"] == first["id"]), "1000.00")
+        self.assertEqual(next(row["budget"] for row in rows if row["categoryId"] == new["id"]), "500.00")
+        self.assertEqual(self.write(self.other, "POST", "/api/categorias/lote",
+                                    {"changes": [{**edit(first), "budget": budget("5", "1000.00")}]}).status_code, 409)
+
+        rejected = [{**edit(first, name="No guardar"), "budget": budget("2000", "1000.00")},
+                    {**edit(new), "budget": budget(None, "999.00")}]
+        self.assertEqual(self.write(self.client, "POST", "/api/categorias/lote", {"changes": rejected}).status_code, 409)
+        rows = self.client.get("/api/presupuestos?mes=2020-06").json()["categories"]
+        self.assertEqual(next(row["budget"] for row in rows if row["categoryId"] == first["id"]), "1000.00")
+        self.assertEqual(next(row["name"] for row in self.client.get("/api/dashboard/categorias").json()["categories"]
+                              if row["id"] == first["id"]), "Actualizada")
+        changes = [{**edit(first), "budget": budget("0", "1000.00")},
+                   {**edit(new), "budget": budget(None, "500.00")}]
+        self.assertEqual(self.write(self.client, "POST", "/api/categorias/lote", {"changes": changes}).status_code, 200)
+        rows = self.client.get("/api/presupuestos?mes=2020-06").json()["categories"]
+        self.assertEqual(next(row["budget"] for row in rows if row["categoryId"] == first["id"]), "0.00")
+        self.assertIsNone(next(row["budget"] for row in rows if row["categoryId"] == new["id"]))
+        self.assertEqual(self.write(self.client, "POST", "/api/categorias/lote",
+                                    {"changes": [{**edit(first), "budget": budget("8", None)}]}).status_code, 409)
+        self.assertEqual(self.write(self.client, "POST", "/api/categorias/lote",
+                                    {"changes": [{**edit(first, active=False), "budget": budget("8", "0.00")}]}).status_code, 400)
+        with psycopg.connect(dbname=self.database) as conn:
+            conn.execute("UPDATE finance.budget SET amount = 12.34 WHERE category_id = %s AND month_start = '2020-06-01'",
+                         (first["id"],))
+        self.assertEqual(self.write(self.client, "POST", "/api/categorias/lote",
+                                    {"changes": [{**edit(first), "budget": budget(None, "12.34")}]}).status_code, 200)
+        rows = self.client.get("/api/presupuestos?mes=2020-06").json()["categories"]
+        self.assertIsNone(next(row["budget"] for row in rows if row["categoryId"] == first["id"]))
+
     def test_categories_and_budgets_preserve_history(self):
         categories = self.client.get("/api/categorias").json()["categories"]
         other_category = self.other.get("/api/categorias").json()["categories"][0]["id"]

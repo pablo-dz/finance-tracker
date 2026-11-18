@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Mis finanzas</title>
-  <link rel="stylesheet" href="/styles.css?v=4">
-  <script src="/dashboard.js" type="module"></script>
+  <link rel="stylesheet" href="/styles.css?v=6">
+  <script src="/dashboard.js?v=6" type="module"></script>
 </head>
 <body>
   <header>
@@ -57,6 +57,15 @@
       <button type="button" id="nav-savings" aria-controls="savings-panel">Metas de ahorro</button>
       <button type="button" id="nav-categories" aria-controls="category-panel">Categorías</button>
     </nav>
+    <form id="month-form" class="month-selector">
+      <div class="filters">
+        <label for="month">Mes del dashboard y presupuestos
+          <input id="month" type="month" min="1900-01" max="9999-12" required>
+        </label>
+        <button>Consultar</button>
+      </div>
+    </form>
+    <p id="message" role="status" aria-live="polite"></p>
     <div id="dashboard-view">
     <div class="intro">
       <div>
@@ -64,17 +73,8 @@
         <h1>Conoce tus gastos</h1>
         <p>Consulta tus gastos por mes y categoría.</p>
       </div>
-      <form id="month-form">
-        <div class="filters">
-          <label for="month">Mes
-            <input id="month" type="month" min="1900-01" max="9999-12" required>
-          </label>
-          <button>Consultar</button>
-        </div>
-      </form>
     </div>
     <p class="notice">Tus movimientos quedan asociados a tu cuenta. La aplicación funciona localmente en este equipo.</p>
-    <p id="message" role="status" aria-live="polite"></p>
     <p id="movement-status" role="status" aria-live="polite"></p>
     <section id="results" hidden aria-label="Resumen de gastos">
       <section id="financial-dashboard" class="panel" aria-labelledby="dashboard-title">
@@ -220,31 +220,6 @@
         <h3>Gasto por categoría</h3>
         <ul id="report-categories" aria-label="Gastos por categoría en el período"></ul>
       </section>
-      <section class="panel" id="budget-panel" hidden>
-        <p class="eyebrow">PLANIFICACIÓN PERSONAL</p>
-        <h2>Presupuestos por categoría</h2>
-        <p id="budget-period"></p>
-        <p class="chart-description">Solo gastos personales en CLP con categorías de gasto. Los gastos sin categoría no se comparan. Cada mes se configura por separado.</p>
-        <p id="budget-status" role="status" aria-live="polite"></p>
-        <ul id="budgets" aria-label="Presupuestos y gastos por categoría"></ul>
-        <form id="budget-form">
-          <h3 id="budget-form-title">Crear presupuesto</h3>
-          <p id="budget-form-period"></p>
-          <div class="form-grid">
-            <label>Categoría
-              <select name="categoryId" required><option value="">Selecciona una categoría</option></select>
-            </label>
-            <label>Límite en CLP
-              <input name="amount" type="number" min="0" max="999999999999" step="1" required placeholder="Ej. 150000">
-            </label>
-          </div>
-          <p id="budget-form-message" role="status" aria-live="polite"></p>
-          <div class="form-actions">
-            <button id="save-budget" type="submit" disabled>Crear presupuesto</button>
-            <button id="cancel-budget-edit" class="secondary-button" type="button" hidden>Cancelar edición</button>
-          </div>
-        </form>
-      </section>
       <section class="panel">
         <p class="eyebrow">DETALLE DEL MES</p>
         <h2>Movimientos</h2>
@@ -344,12 +319,15 @@
       </form>
     </section>
     </div>
-    <section class="panel" id="category-panel" hidden aria-labelledby="category-title">
+    <div id="category-panel" hidden>
+    <section class="panel" aria-labelledby="category-title">
       <p class="eyebrow">PERSONALIZA TU REGISTRO</p>
       <h1 id="category-title">Mis categorías</h1>
       <p class="chart-description">Crea, renombra y clasifica tus categorías de gasto. Las categorías nuevas son variables por defecto.</p>
       <p class="category-description">Los cambios de nombre y clasificación se aplican también al historial. Archivar conserva los gastos y presupuestos; puedes restaurar la categoría cuando quieras.</p>
       <p class="category-description">Los cambios no se guardan hasta pulsar «Actualizar categorías».</p>
+      <p class="category-description">Define un presupuesto en pesos enteros para el mes consultado. Deja el campo vacío para quitarlo.</p>
+      <p id="budget-period" role="status" aria-live="polite">Consulta un mes para configurar presupuestos.</p>
       <ul id="managed-categories" aria-label="Administrar categorías personales"></ul>
       <form id="category-form">
         <h2>Crear categoría</h2>
@@ -364,6 +342,7 @@
         <button id="refresh-categories" class="secondary-button" type="button">Descartar cambios y recargar</button>
       </div>
     </section>
+    </div>
     <section class="panel" id="savings-panel" hidden aria-labelledby="savings-title">
       <p class="eyebrow">PLANIFICACIÓN PERSONAL</p>
       <h1 id="savings-title">Metas de ahorro</h1>

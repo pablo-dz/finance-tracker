@@ -87,6 +87,22 @@ class MovementValidationTest(unittest.TestCase):
         for method, body in invalid_budgets:
             with self.subTest(method=method, body=body):
                 self.assertEqual(self.client.request(method, "/api/presupuestos", headers=self.headers, json=body).status_code, 400)
+        category = {"name": "Viajes", "active": True, "fixed": False}
+        batch_budget = {"month": "2020-06", "amount": "10", "expectedAmount": None}
+        invalid_batch = [
+            {**batch_budget, "month": "2020-13"},
+            {**batch_budget, "amount": "1.25"},
+            {**batch_budget, "expectedAmount": "10.00"},
+            {"month": "2020-06", "amount": "10"},
+            {**batch_budget, "amount": None},
+        ]
+        for invalid in invalid_batch:
+            with self.subTest(budget=invalid):
+                self.assertEqual(self.client.post("/api/categorias/lote", headers=self.headers,
+                                                  json={"changes": [{**category, "budget": invalid}]}).status_code, 400)
+        self.assertEqual(self.client.post("/api/categorias/lote", headers=self.headers,
+                                          json={"changes": [{**category, "active": False,
+                                                             "budget": batch_budget}]}).status_code, 400)
         self.assertEqual(self.client.post("/api/categorias", headers={"Origin": "https://other.example"},
                                           json={"name": "Viajes"}).status_code, 403)
 
@@ -135,7 +151,9 @@ class DashboardTest(unittest.TestCase):
                 self.assertEqual(response.status_code, 200)
                 self.assertTrue(response.headers["content-type"].startswith(content_type))
                 self.assertEqual(response.headers["cache-control"], "no-cache")
-            self.assertEqual(client.get("/styles.css?v=4").status_code, 200)
+            self.assertEqual(client.get("/styles.css?v=6").status_code, 200)
+            self.assertEqual(client.get("/dashboard.js?v=6").status_code, 200)
+            self.assertEqual(client.get("/modules/planning.js?v=6").status_code, 200)
             self.assertEqual(client.get("/server.js").status_code, 404)
             self.assertEqual(client.get("/modules/unknown.js").status_code, 404)
 

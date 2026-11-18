@@ -3,6 +3,25 @@ import { readFile } from "node:fs/promises";
 import { test } from "node:test";
 import { JSDOM } from "jsdom";
 
+test("los módulos del frontend comparten una versión que evita archivos cacheados incompatibles", async () => {
+  const html = await readFile(new URL("../../frontend/index.html", import.meta.url), "utf8");
+  const entry = html.match(/<script src="(\/dashboard\.js\?v=([^"]+))" type="module">/);
+  assert.ok(entry, "El módulo principal debe tener una versión.");
+  const pending = [new URL(`../../frontend${entry[1]}`, import.meta.url)];
+  const visited = new Set();
+  while (pending.length) {
+    const url = pending.pop();
+    if (visited.has(url.href)) continue;
+    visited.add(url.href);
+    const source = await readFile(url, "utf8");
+    for (const match of source.matchAll(/from\s+["'](\.[^"']+\.js(?:\?[^"']*)?)["']/g)) {
+      const dependency = new URL(match[1], url);
+      assert.equal(dependency.searchParams.get("v"), entry[2], `${url.pathname}: ${match[1]}`);
+      pending.push(dependency);
+    }
+  }
+});
+
 test("los módulos coordinan la sesión, los movimientos y la planificación", async (t) => {
   const html = await readFile(new URL("../../frontend/index.html", import.meta.url), "utf8");
   const dom = new JSDOM(html, { url: "http://127.0.0.1:3000/" });
@@ -33,6 +52,7 @@ test("los módulos coordinan la sesión, los movimientos y la planificación", a
     income: null,
     transfer: null,
     budget: null,
+    otherBudgets: {},
     goals: [],
     categories: [{ id: 2, name: "Groceries", active: true, fixed: false }],
     payments: [],
@@ -45,6 +65,7 @@ test("los módulos coordinan la sesión, los movimientos y la planificación", a
     failCategories: false,
     failCategorySave: false,
     categorySaveGate: null,
+    categoryLoadGate: null,
   };
   const requests = [];
   const account = { id: 1, name: "Cuenta principal", openingBalance: "0.00", balance: "0.00" };
@@ -102,6 +123,7 @@ test("los módulos coordinan la sesión, los movimientos y la planificación", a
         data.categories.find((item) => item.id === body.id).fixed = body.fixed;
         result = { message: "Guardado." };
       } else {
+        if (data.categoryLoadGate) await data.categoryLoadGate;
         if (data.failCategories) return { ok: false, json: async () => ({ error: "Categorías no disponibles." }) };
         result = { categories: data.categories };
       }
@@ -157,6 +179,11 @@ test("los módulos coordinan la sesión, los movimientos y la planificación", a
           name: change.name, active: change.active, fixed: change.fixed,
         });
         else data.categories.push({ id: 7, name: change.name, active: change.active, fixed: change.fixed });
+        if (change.budget) {
+          const id = change.id ?? 7;
+          if (id === 2) data.budget = change.budget.amount === null ? null : { amount: change.budget.amount };
+          else data.otherBudgets[id] = change.budget.amount;
+        }
       }
       result = { message: "Categorías actualizadas correctamente.", categories: data.categories };
     } else if (url.pathname === "/api/categorias" && method === "POST") {
@@ -177,12 +204,13 @@ test("los módulos coordinan la sesión, los movimientos y la planificación", a
       data.budget = body;
       result = { message: "Guardado." };
     } else if (url.pathname === "/api/presupuestos") {
-      result = { categories: [{
-        categoryId: category.id, category: category.name, isActive: true,
-        budget: data.budget ? `${data.budget.amount}.00` : null,
+      result = { categories: data.categories.map((item) => ({
+        categoryId: item.id, category: item.name, isActive: item.active,
+        budget: item.id === 2 ? (data.budget ? (data.budget.amount.includes(".") ? data.budget.amount : `${data.budget.amount}.00`) : null)
+          : (data.otherBudgets[item.id] == null ? null : `${data.otherBudgets[item.id]}.00`),
         spent: data.expense ? `${data.expense.amount}.00` : "0",
         difference: "500.00", exceeded: false,
-      }] };
+      })) };
     } else if (url.pathname === "/api/metas" && method === "POST") {
       data.goals.push({ id: 4, name: body.name, targetAmount: `${body.targetAmount}.00`,
                         dueDate: body.dueDate, saved: "0", contributions: [] });
@@ -227,13 +255,25 @@ test("los módulos coordinan la sesión, los movimientos y la planificación", a
   assert.equal(element("#auth-status").textContent, "Las contraseñas no coinciden.");
   assert.ok(!requests.some((request) => request.path === "/api/auth/register"));
   field("#register-form", "passwordConfirm", "contraseña de prueba");
+  data.budget = { amount: "350" };
+  let releaseCategoryLoad;
+  data.categoryLoadGate = new Promise((resolve) => { releaseCategoryLoad = resolve; });
   submit("#register-form");
+  await waitFor(() => element("#budget-period").textContent.startsWith("Presupuestos del mes:"));
+  data.categoryLoadGate = null;
+  releaseCategoryLoad();
+  await waitFor(() => element('[aria-label="Presupuesto de Supermercado"]') && !element('[aria-label="Presupuesto de Supermercado"]').disabled);
+  assert.equal(element('[aria-label="Presupuesto de Supermercado"]').value, "350");
+  data.budget = null;
+  submit("#month-form");
+  await waitFor(() => element('[aria-label="Presupuesto de Supermercado"]')?.value === "");
   await waitFor(() => element("#expense-form [name=categoryId]").options.length === 2);
   await waitFor(() => !element("#dashboard-content").hidden);
   assert.equal(element("#user-email").textContent, "test@example.test");
   assert.equal(element("#dashboard-view").hidden, false);
   assert.equal(element("#savings-panel").hidden, true);
   assert.equal(element("#nav-dashboard").getAttribute("aria-current"), "page");
+  assert.equal(element("#budget-panel"), null);
   assert.match(element("#dashboard-summary").textContent, /Sin ingresos/);
   assert.equal(element("#dashboard-trend-chart svg").getAttribute("aria-hidden"), "true");
   for (const selector of ["#dashboard-trend-chart", "#dashboard-balance-chart"]) {
@@ -430,11 +470,27 @@ test("los módulos coordinan la sesión, los movimientos y la planificación", a
   assert.ok(requests.some((request) => request.path === "/api/cuentas/saldo-inicial"
     && request.body.expectedAmount === "0.00"));
 
-  field("#budget-form", "categoryId", "2");
-  field("#budget-form", "amount", "1700");
-  submit("#budget-form");
-  await waitFor(() => element("#budgets").textContent.includes("Límite: $1.700"));
+  element("#nav-categories").click();
+  assert.equal(element("#month-form").hidden, false);
+  assert.equal(element("#dashboard-view").hidden, true);
+  element("#month").value = "2024-12";
+  submit("#month-form");
+  await waitFor(() => element("#budget-period").textContent === "Presupuestos del mes: 2024-12");
+  assert.ok(requests.some((request) => request.path === "/api/presupuestos" && request.month === "2024-12"));
+  element("#month").value = initialMonth;
+  submit("#month-form");
+  await waitFor(() => element("#budget-period").textContent === `Presupuestos del mes: ${initialMonth}`);
+  const budgetInput = element('[aria-label="Presupuesto de Supermercado"]');
+  budgetInput.value = "1700";
+  budgetInput.dispatchEvent(new window.Event("input", { bubbles: true }));
+  element("#save-categories").click();
+  await waitFor(() => element("#category-status").textContent === "Categorías actualizadas correctamente.");
+  assert.ok(requests.some((request) => request.path === "/api/categorias/lote"
+    && request.body.changes[0].budget.amount === "1700"));
   await waitFor(() => element("#dashboard-budget-chart .budget-bar-target")?.getAttribute("aria-label").includes("Límite: $1.700"));
+  element("#nav-dashboard").click();
+  assert.equal(element("#category-panel").hidden, true);
+  assert.equal(element("#dashboard-view").hidden, false);
   assert.equal(element("#dashboard-pace-chart svg").querySelectorAll("polyline").length, 2);
   assert.equal(element("#dashboard-pace-chart .visualization-axis-x").textContent, "Día del mes");
   assert.equal(element("#dashboard-pace-chart .visualization-axis-y").textContent, "Monto (CLP)");
@@ -455,7 +511,6 @@ test("los módulos coordinan la sesión, los movimientos y la planificación", a
   assert.match(paceTooltip.textContent, /Día 3.*Gasto acumulado: \$1.200/);
   pacePoints[19].click();
   assert.match(paceTooltip.textContent, /Día 3.*Gasto acumulado: \$1.200.*Ritmo ideal: \$/);
-  assert.match(element("#budgets").textContent, /Disponible: \$500/);
   for (const [spent, expected] of [["1360", "Alerta: 80 % o más"],
                                    ["1700", "Límite alcanzado"],
                                    ["1701", "Presupuesto excedido"]]) {
@@ -474,12 +529,67 @@ test("los módulos coordinan la sesión, los movimientos y la planificación", a
   submit("#month-form");
   await waitFor(() => element("#dashboard-budget-chart .budget-bar-target")?.getAttribute("aria-label").includes("Disponible: $500")
     && !element("#dashboard-content").hidden);
-  element('[aria-label^="Cambiar límite de Supermercado"]').click();
-  field("#budget-form", "amount", "2000");
-  submit("#budget-form");
-  await waitFor(() => element("#budget-form-message").textContent === "El presupuesto cambió.");
-  assert.ok(requests.some((request) => request.path === "/api/presupuestos" && request.method === "PUT"
-    && request.body.expectedAmount === "1700.00"));
+  element("#nav-categories").click();
+  const editedBudget = element('[aria-label="Presupuesto de Supermercado"]');
+  editedBudget.value = "2000";
+  editedBudget.dispatchEvent(new window.Event("input", { bubbles: true }));
+  setGlobal("confirm", () => false);
+  element("#month").value = "2024-12";
+  submit("#month-form");
+  assert.equal(element("#month").value, initialMonth);
+  assert.equal(editedBudget.value, "2000");
+  setGlobal("confirm", () => true);
+  field("#income-form", "merchant", "Ingreso anterior");
+  field("#income-form", "amount", "200");
+  field("#income-form", "date", "2023-01-01");
+  field("#income-form", "accountId", "1");
+  field("#income-form", "categoryId", "3");
+  submit("#income-form");
+  await waitFor(() => element("#income-form-message").textContent === "Ingreso registrado correctamente."
+    && !element("#save-income").disabled);
+  assert.equal(element("#month").value, initialMonth);
+  assert.equal(element('[aria-label="Presupuesto de Supermercado"]').value, "2000");
+  data.budget.amount = "1750";
+  const budgetRequests = requests.filter((request) => request.path === "/api/presupuestos").length;
+  submit("#month-form");
+  await waitFor(() => requests.filter((request) => request.path === "/api/presupuestos").length > budgetRequests
+    && element('[aria-label="Presupuesto de Supermercado"]')?.value === "2000");
+  assert.equal(element("#save-categories").disabled, false);
+  data.failCategorySave = true;
+  element("#save-categories").click();
+  await waitFor(() => element("#category-status").textContent === "No se pudo guardar.");
+  assert.deepEqual(requests.filter((request) => request.path === "/api/categorias/lote").at(-1).body.changes[0].budget,
+    { month: initialMonth, amount: "2000", expectedAmount: "1700.00" });
+  data.failCategorySave = false;
+  data.budget.amount = "1700";
+  element('[aria-label="Archivar categoría Supermercado"]').click();
+  assert.match(element("#category-status").textContent, /antes de archivar/);
+  assert.ok(element('[aria-label="Archivar categoría Supermercado"]'));
+  element("#month").value = "2024-12";
+  submit("#month-form");
+  await waitFor(() => element("#budget-period").textContent === "Presupuestos del mes: 2024-12");
+  assert.equal(element('[aria-label="Presupuesto de Supermercado"]').value, "1700");
+  element("#month").value = initialMonth;
+  submit("#month-form");
+  await waitFor(() => element("#budget-period").textContent === `Presupuestos del mes: ${initialMonth}`);
+  data.budget.amount = "1700.50";
+  submit("#month-form");
+  await waitFor(() => element('[aria-label="Presupuesto de Supermercado"]')?.value === "1700.50");
+  const historicalType = element('[aria-label="Tipo de Supermercado"]');
+  historicalType.value = "true";
+  historicalType.dispatchEvent(new window.Event("change", { bubbles: true }));
+  element("#save-categories").click();
+  await waitFor(() => element("#category-status").textContent === "Categorías actualizadas correctamente.");
+  assert.equal(data.budget.amount, "1700.50");
+  assert.ok(!requests.filter((request) => request.path === "/api/categorias/lote").at(-1).body.changes[0].budget);
+  const deleteBudget = element('[aria-label="Presupuesto de Supermercado"]');
+  deleteBudget.value = "";
+  deleteBudget.dispatchEvent(new window.Event("input", { bubbles: true }));
+  element("#save-categories").click();
+  await waitFor(() => element("#category-status").textContent === "Categorías actualizadas correctamente.");
+  assert.equal(data.budget, null);
+  assert.deepEqual(requests.filter((request) => request.path === "/api/categorias/lote").at(-1).body.changes[0].budget,
+    { month: initialMonth, amount: null, expectedAmount: "1700.50" });
 
   data.failExpenses = true;
   submit("#month-form");
@@ -487,8 +597,11 @@ test("los módulos coordinan la sesión, los movimientos y la planificación", a
   element("#nav-categories").click();
   assert.equal(element("#dashboard-view").hidden, true);
   assert.equal(element("#category-panel").hidden, false);
+  assert.equal(element("#budget-panel"), null);
+  assert.equal(element("#message").hidden, false);
   assert.equal(element("#nav-categories").getAttribute("aria-current"), "page");
   assert.equal(element("#nav-dashboard").hasAttribute("aria-current"), false);
+  data.failExpenses = false;
   data.failCategories = true;
   element("#refresh-categories").click();
   await waitFor(() => element("#category-status").textContent === "Categorías no disponibles.");
@@ -503,12 +616,16 @@ test("los módulos coordinan la sesión, los movimientos y la planificación", a
   field("#category-form", "name", "Mascotas");
   submit("#category-form");
   assert.ok(element('[aria-label="Quitar categoría Mascotas"]'));
-  assert.equal(data.categories[0].fixed, false);
+  const newBudget = element('[aria-label="Presupuesto de Mascotas"]');
+  newBudget.value = "0";
+  newBudget.dispatchEvent(new window.Event("input", { bubbles: true }));
+  assert.equal(data.categories[0].fixed, true);
   assert.equal(data.categories.length, 1);
-  assert.ok(!requests.some((request) => request.path === "/api/categorias/lote"));
+  const savesBeforeFailure = requests.filter((request) => request.path === "/api/categorias/lote").length;
   const leaveWithChanges = new window.Event("beforeunload", { cancelable: true });
   assert.equal(window.dispatchEvent(leaveWithChanges), false);
   element("#nav-savings").click();
+  assert.equal(element("#month-form").hidden, true);
   element("#nav-categories").click();
   assert.equal(element('[aria-label="Tipo de Supermercado"]').value, "true");
   assert.ok(element('[aria-label="Quitar categoría Mascotas"]'));
@@ -516,7 +633,8 @@ test("los módulos coordinan la sesión, los movimientos y la planificación", a
   element("#save-categories").click();
   await waitFor(() => element("#category-status").textContent === "No se pudo guardar.");
   assert.ok(element('[aria-label="Quitar categoría Mascotas"]'));
-  assert.equal(data.categories[0].fixed, false);
+  assert.equal(data.categories[0].fixed, true);
+  assert.equal(requests.filter((request) => request.path === "/api/categorias/lote").length, savesBeforeFailure + 1);
   data.failCategorySave = false;
   let releaseCategorySave;
   data.categorySaveGate = new Promise((resolve) => { releaseCategorySave = resolve; });
@@ -529,6 +647,10 @@ test("los módulos coordinan la sesión, los movimientos y la planificación", a
   await waitFor(() => element("#category-status").textContent === "Categorías actualizadas correctamente.");
   assert.equal(data.categories[0].fixed, true);
   assert.equal(data.categories.length, 2);
+  assert.equal(data.otherBudgets[7], "0");
+  assert.ok(requests.some((request) => request.path === "/api/categorias/lote"
+    && request.body.changes.some((change) => change.name === "Mascotas"
+      && change.budget?.amount === "0" && change.budget.expectedAmount === null)));
   assert.equal(window.dispatchEvent(new window.Event("beforeunload", { cancelable: true })), true);
 
   const draftType = element('[aria-label="Tipo de Supermercado"]');
