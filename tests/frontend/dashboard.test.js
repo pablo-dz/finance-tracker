@@ -312,6 +312,13 @@ test("los módulos coordinan la sesión, los movimientos y la planificación", a
   await waitFor(() => !element("#dashboard-content").hidden);
   assert.equal(element("#user-email").textContent, "test@example.test");
   assert.equal(element("#dashboard-view").hidden, false);
+  assert.equal(window.document.querySelectorAll(".dashboard-grid > .dashboard-section[open]").length, 7);
+  assert.equal(window.document.body.classList.contains("dashboard-layout"), true);
+  const firstDashboardCard = element(".dashboard-grid > .dashboard-section");
+  firstDashboardCard.querySelector("summary").click();
+  assert.equal(firstDashboardCard.open, false);
+  firstDashboardCard.querySelector("summary").click();
+  assert.equal(firstDashboardCard.open, true);
   assert.equal(element("#movements-view").hidden, true);
   assert.equal(element("#accounts-panel").hidden, true);
   assert.equal(element("#savings-panel").hidden, true);
@@ -672,6 +679,7 @@ test("los módulos coordinan la sesión, los movimientos y la planificación", a
   assert.match(element("#transfer-movements").textContent, /Ahorro/);
 
   element("#nav-accounts").click();
+  assert.equal(window.document.body.classList.contains("dashboard-layout"), false);
   assert.equal(element("#nav-accounts").getAttribute("aria-current"), "page");
   assert.equal(element("#movements-view").hidden, true);
   assert.equal(element("#dashboard-view").hidden, true);

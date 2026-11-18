@@ -116,7 +116,7 @@ function chartTooltip(container, plot, scroll, className) {
   return { tooltip, bind };
 }
 
-export function budgetChart(container, entries, format) {
+export function budgetChart(container, entries, format, { height = 240 } = {}) {
   chartTooltipCleanup.get(container)?.();
   chartTooltipCleanup.delete(container);
   container.replaceChildren();
@@ -125,7 +125,6 @@ export function budgetChart(container, entries, format) {
   const max = entries.reduce((largest, entry) =>
     [largest, entry.limit, entry.spent].reduce((a, b) => a > b ? a : b), 0n);
   const scale = monetaryScale(0n, max);
-  const height = 240;
   const width = entries.length * 120;
   const y = (value) => scalePosition(value, scale, 0, height);
   const barHeight = (value) => height - y(value);
@@ -143,15 +142,19 @@ export function budgetChart(container, entries, format) {
   const plot = text(document, "div", "", "budget-plot");
   const yTitle = text(document, "span", "Monto (CLP)", "visualization-axis-title visualization-axis-y budget-axis-title");
   const axis = verticalAxis(document, scale, format, y);
+  yTitle.style.height = `${height}px`;
+  axis.style.height = `${height}px`;
   axis.classList.add("budget-y-axis");
   const scroll = text(document, "div", "", "budget-plot-scroll");
   const inner = text(document, "div", "", "budget-plot-inner");
   inner.style.minWidth = `${width}px`;
   const targets = text(document, "div", "", "budget-plot-targets");
+  targets.style.height = `${height}px`;
   const { tooltip, bind } = chartTooltip(container, plot, scroll, "budget-tooltip");
   const svg = svgElement(document, "svg", {
     viewBox: `0 0 ${width} ${height}`, preserveAspectRatio: "none", "aria-hidden": "true", class: "budget-plot-svg",
   });
+  svg.style.height = `${height}px`;
   for (const value of scale.ticks) {
     svg.append(svgElement(document, "line", {
       x1: 0, x2: width, y1: y(value), y2: y(value), class: "visualization-grid",
@@ -227,7 +230,7 @@ export function horizontalBarChart(container, entries, format) {
 }
 
 export function lineChart(container, labels, series, format,
-  { labelStep = 1, xLabel = "Mes", pointDetails = false, pointLabels = labels, xValues = null } = {}) {
+  { labelStep = 1, xLabel = "Mes", pointDetails = false, pointLabels = labels, xValues = null, height = 240 } = {}) {
   chartTooltipCleanup.get(container)?.();
   chartTooltipCleanup.delete(container);
   container.replaceChildren();
@@ -250,13 +253,16 @@ export function lineChart(container, labels, series, format,
   const legend = text(document, "div", "", "visualization-legend");
   const plot = text(document, "div", "", "visualization-line-plot");
   const yTitle = text(document, "span", "Monto (CLP)", "visualization-axis-title visualization-axis-y");
-  const axis = verticalAxis(document, scale, format, (value) => y(value) * 240 / 225);
+  const axis = verticalAxis(document, scale, format, (value) => y(value) * height / 225);
+  yTitle.style.height = `${height}px`;
+  axis.style.height = `${height}px`;
   const wrapper = text(document, "div", "", "visualization-scroll");
   const inner = pointDetails ? text(document, "div", "", "visualization-line-inner") : null;
   const popup = pointDetails ? chartTooltip(container, plot, wrapper, "line-tooltip") : null;
   const svg = svgElement(document, "svg", {
     viewBox: "0 0 720 225", preserveAspectRatio: "none", "aria-hidden": "true", class: "visualization-line",
   });
+  svg.style.height = `${height}px`;
   for (const value of scale.ticks) {
     svg.append(svgElement(document, "line", {
       x1: 30, x2: 690, y1: y(value), y2: y(value),
@@ -266,7 +272,8 @@ export function lineChart(container, labels, series, format,
   labels.forEach((label, index) => {
     if (index !== labels.length - 1
         && (index % labelStep !== 0 || labels.length - 1 - index < labelStep)) return;
-    const tick = svgElement(document, "text", { x: x(index), y: 215, "text-anchor": "middle" });
+    const anchor = labels.length === 1 ? "middle" : index === 0 ? "start" : index === labels.length - 1 ? "end" : "middle";
+    const tick = svgElement(document, "text", { x: x(index), y: 215, "text-anchor": anchor });
     tick.textContent = label;
     svg.append(tick);
   });
@@ -301,7 +308,7 @@ export function lineChart(container, labels, series, format,
         target.type = "button";
         if (index > 0) target.tabIndex = -1;
         target.style.left = `${x(i) / 720 * 100}%`;
-        target.style.top = `${y(value) * 240 / 225}px`;
+        target.style.top = `${y(value) * height / 225}px`;
         target.setAttribute("aria-label", `${pointLabels[i]}. ${detail.join(". ")}`);
         popup.bind(target, target, pointLabels[i], detail);
         inner.append(target);

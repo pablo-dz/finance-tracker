@@ -1,5 +1,5 @@
-import { displayName, formatMoney, state } from "./common.js?v=24";
-import { budgetChart, horizontalBarChart, lineChart, pieChart3D } from "./visualizations.js?v=24";
+import { displayName, formatMoney, state } from "./common.js?v=27";
+import { budgetChart, horizontalBarChart, lineChart, pieChart3D } from "./visualizations.js?v=27";
 
 const status = document.querySelector("#dashboard-status");
 const content = document.querySelector("#dashboard-content");
@@ -23,6 +23,7 @@ const goalValues = document.querySelector("#goal-projection-values");
 const balanceList = document.querySelector("#dashboard-balances");
 const balanceChart = document.querySelector("#dashboard-balance-chart");
 const topChart = document.querySelector("#dashboard-top-chart");
+const chartHeight = 200;
 
 let requestId = 0;
 let dashboardData = null;
@@ -88,7 +89,7 @@ function renderSummary(data) {
 }
 
 function renderBudgets(rows) {
-  budgetChart(budgetChartContainer, [], money);
+  budgetChart(budgetChartContainer, [], money, { height: chartHeight });
   if (!rows.length) {
     budgetChartContainer.append(node("p", "No hay categorías para este mes.", "dashboard-empty"));
     return;
@@ -120,7 +121,7 @@ function renderBudgets(rows) {
           `${percent}${budgetLabel(budgetLevel(spent, limit))}`,
         ],
       };
-    }), money);
+    }), money, { height: chartHeight });
   } else {
     budgetChartContainer.append(node("p", "No hay categorías con presupuesto.", "dashboard-empty"));
   }
@@ -163,7 +164,7 @@ function renderTrend(data) {
     { name: "Ingresos", values: rows.map((row) => cents(row.income)) },
     { name: "Gastos", values: rows.map((row) => cents(row.expenses)) },
     { name: "Ahorro neto", values: rows.map((row) => cents(row.saving)) },
-  ], money, { pointDetails: true });
+  ], money, { labelStep: Math.max(1, Math.ceil(rows.length / 4)), pointDetails: true, height: chartHeight });
   trendList.replaceChildren();
   for (const row of rows) {
     trendList.append(node("li", `${row.month}: Ingresos: ${formatMoney(row.income)} · Gastos: ${formatMoney(row.expenses)} · Ahorro neto: ${formatMoney(row.saving)}`));
@@ -197,7 +198,7 @@ function renderCategories(data) {
     const values = months.map((month) => group?.months.get(month) ?? 0n);
     categoryEvolutionTitle.textContent = `Evolución: ${entry.name}`;
     lineChart(categoryEvolutionChart, months, [{ name: entry.name, values, color }], money,
-      { labelStep: Math.max(1, Math.ceil(months.length / 6)), pointDetails: true });
+      { labelStep: Math.max(1, Math.ceil(months.length / 6)), pointDetails: true, height: chartHeight });
     categoryEvolutionValues.replaceChildren(...months.map((month, index) =>
       node("li", `${month}: ${money(values[index])}`)));
   }, selectedCategoryKey);
@@ -247,7 +248,7 @@ function renderPace(data) {
     lineChart(paceChart, labels, [
       { name: "Gasto acumulado", values: actual },
       { name: "Ritmo ideal", values: idealValues },
-    ], money, { xLabel: "Día del mes", pointDetails: true,
+    ], money, { xLabel: "Día del mes", pointDetails: true, height: chartHeight,
                 pointLabels: actual.map((_, day) => `Día ${day}`) });
   }
 }
@@ -295,7 +296,7 @@ function renderSelectedGoal(data) {
   lineChart(goalChart, labels, [
     { name: "Proyección", values: projected, dash: "8 4" },
     { name: "Meta", values: offsets.map(() => target), dash: "2 4" },
-  ], money, { xLabel: "Fecha", pointDetails: true, xValues: offsets,
+  ], money, { xLabel: "Fecha", pointDetails: true, xValues: offsets, height: chartHeight,
     labelStep: Math.max(1, Math.ceil((count - 1) / 3)) });
   for (const [index, label] of labels.entries()) {
     goalValues.append(node("li", `${label}: Proyección: ${money(projected[index])} · Meta: ${money(target)}`));
@@ -326,7 +327,8 @@ function renderBalances(data) {
       }),
     })),
   ];
-  lineChart(balanceChart, rows.map((row) => row.month), series, money, { pointDetails: true });
+  lineChart(balanceChart, rows.map((row) => row.month), series, money,
+    { labelStep: Math.max(1, Math.ceil(rows.length / 4)), pointDetails: true, height: chartHeight });
   balanceList.replaceChildren();
   for (const [index, row] of rows.entries()) {
     const details = series.map((entry) => `${entry.name}: ${entry.values[index] === null ? "Sin datos" : money(entry.values[index])}`);

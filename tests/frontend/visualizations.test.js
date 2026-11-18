@@ -169,10 +169,13 @@ test("el gráfico temporal representa valores positivos y negativos sobre una es
   assert.equal(container.querySelector(".visualization-zero").getAttribute("y1"), "105");
   assert.equal(container.querySelector(".visualization-axis-y").textContent, "Monto (CLP)");
   assert.equal(container.querySelector(".visualization-axis-x").textContent, "Mes");
+  assert.deepEqual([...container.querySelectorAll(".visualization-line text")].map((item) => item.getAttribute("text-anchor")),
+    ["start", "middle", "end"]);
   assert.deepEqual([...container.querySelectorAll(".visualization-y-tick")].map((item) => item.textContent),
     ["110", "50", "0", "-50", "-110"]);
   lineChart(container, ["Ene"], [{ name: "Saldo", values: [0n] }], String, { xLabel: "Día del mes" });
   assert.equal(container.querySelector("circle").getAttribute("cy"), "190");
+  assert.equal(container.querySelector(".visualization-line text").getAttribute("text-anchor"), "middle");
   assert.equal(container.querySelector(".visualization-axis-x").textContent, "Día del mes");
   dom.window.close();
 });
@@ -268,6 +271,38 @@ test("las escalas monetarias se ajustan a los datos y alinean marcas con la cuad
   assert.deepEqual([...container.querySelectorAll(".visualization-y-tick")].map((tick) => tick.textContent),
     ["253", "200", "100", "0"]);
   assert.ok(Math.abs(Number(container.querySelector(".budget-column-limit").getAttribute("height")) - 230 / 253 * 240) < 0.001);
+  dom.window.close();
+});
+
+test("la altura compacta mantiene alineados ejes y objetivos interactivos", () => {
+  const dom = new JSDOM("<div></div>");
+  const container = dom.window.document.querySelector("div");
+  lineChart(container, ["Ene", "Feb"], [{ name: "Saldo", values: [50n, 100n] }],
+    String, { height: 200, pointDetails: true });
+  let svg = container.querySelector("svg");
+  assert.equal(svg.style.height, "200px");
+  assert.equal(container.querySelector(".visualization-y-axis").style.height, "200px");
+  const ticks = [...container.querySelectorAll(".visualization-y-tick")];
+  const grid = [...svg.querySelectorAll("line")];
+  ticks.forEach((tick, i) => assert.ok(
+    Math.abs(parseFloat(tick.style.top) - Number(grid[i].getAttribute("y1")) * 200 / 225) < 0.001));
+  const circles = [...svg.querySelectorAll("circle")];
+  const points = [...container.querySelectorAll(".visualization-point-target")];
+  points.forEach((point, i) => assert.ok(
+    Math.abs(parseFloat(point.style.top) - Number(circles[i].getAttribute("cy")) * 200 / 225) < 0.001));
+
+  budgetChart(container, [{ name: "A", limit: 100n, spent: 50n, detail: [] }], String, { height: 200 });
+  svg = container.querySelector("svg");
+  assert.equal(svg.getAttribute("viewBox"), "0 0 120 200");
+  assert.equal(svg.style.height, "200px");
+  assert.equal(container.querySelector(".visualization-y-axis").style.height, "200px");
+  assert.equal(container.querySelector(".budget-plot-targets").style.height, "200px");
+  const budgetTicks = [...container.querySelectorAll(".visualization-y-tick")];
+  const budgetGrid = [...svg.querySelectorAll("line")];
+  budgetTicks.forEach((tick, i) => assert.ok(
+    Math.abs(parseFloat(tick.style.top) - Number(budgetGrid[i].getAttribute("y1"))) < 0.001));
+  assert.ok(Math.abs(parseFloat(container.querySelector(".budget-bar-target").style.height)
+    - Number(container.querySelector(".budget-column-limit").getAttribute("height"))) < 0.001);
   dom.window.close();
 });
 

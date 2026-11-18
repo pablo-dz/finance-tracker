@@ -1,11 +1,11 @@
 import {
   monthInput, movementStatus, expenseForm,
   todayText, state,
-} from "./modules/common.js?v=24";
-import { initializeAuthentication } from "./modules/auth.js?v=24";
-import { loadExpenses } from "./modules/expenses.js?v=24";
-import { prepareBudgetMonth } from "./modules/planning.js?v=24";
-import { loadSavingsGoals } from "./modules/savings.js?v=24";
+} from "./modules/common.js?v=27";
+import { initializeAuthentication } from "./modules/auth.js?v=27";
+import { loadExpenses } from "./modules/expenses.js?v=27";
+import { prepareBudgetMonth } from "./modules/planning.js?v=27";
+import { loadSavingsGoals } from "./modules/savings.js?v=27";
 
 const form = document.querySelector("#month-form");
 const views = [
@@ -17,6 +17,7 @@ const views = [
 ];
 
 function showView(selected) {
+  document.body.classList.toggle("dashboard-layout", selected.id === "nav-dashboard");
   for (const [button, view] of views) {
     view.hidden = button !== selected;
     if (button === selected) button.setAttribute("aria-current", "page");

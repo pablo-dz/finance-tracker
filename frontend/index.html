@@ -4,10 +4,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Mis finanzas</title>
-  <link rel="stylesheet" href="/styles.css?v=20">
-  <script src="/dashboard.js?v=24" type="module"></script>
+  <link rel="stylesheet" href="/styles.css?v=24">
+  <script src="/dashboard.js?v=27" type="module"></script>
 </head>
-<body>
+<body class="dashboard-layout">
   <header>
     <div class="topbar">
       <strong>◈ Mis finanzas</strong>
@@ -66,44 +66,43 @@
         </label>
         <button>Consultar</button>
       </div>
+      <p id="message" role="status" aria-live="polite"></p>
     </form>
-    <p id="message" role="status" aria-live="polite"></p>
     <div id="dashboard-view">
-    <div class="intro">
-      <div>
-        <p class="eyebrow">TU RESUMEN MENSUAL</p>
-        <h1>Conoce tus gastos</h1>
-        <p>Consulta tus gastos por mes y categoría.</p>
-      </div>
-    </div>
-    <p class="notice">Tus movimientos quedan asociados a tu cuenta. La aplicación funciona localmente en este equipo.</p>
     <section id="results" hidden aria-label="Resumen de gastos">
       <section id="financial-dashboard" class="panel" aria-labelledby="dashboard-title">
         <p class="eyebrow">TU PANORAMA FINANCIERO</p>
-        <h2 id="dashboard-title">Dashboard mensual</h2>
+        <h1 id="dashboard-title">Dashboard mensual</h1>
         <p class="chart-description">Una vista de tus movimientos personales en CLP. Selecciona el mes arriba para actualizarla.</p>
         <p id="dashboard-status" role="status" aria-live="polite"></p>
         <div id="dashboard-content" hidden>
         <div id="dashboard-summary" class="dashboard-summary"></div>
+        <div class="dashboard-controls">
         <label for="dashboard-period">Historial de gráficos</label>
         <select id="dashboard-period">
           <option value="6">Últimos 6 meses</option>
           <option value="12" selected>Últimos 12 meses</option>
         </select>
+        </div>
+        <div class="dashboard-grid">
         <details class="dashboard-section" open>
           <summary>Presupuesto vs. gasto real</summary>
-          <p>El gasto se superpone al límite de cada categoría. Pasa el cursor, toca o enfoca una barra para ver el detalle.</p>
           <div id="dashboard-budget-chart" class="budget-chart"></div>
+          <details class="dashboard-info"><summary>Cómo leer este gráfico</summary><p>El gasto se superpone al límite de cada categoría. Pasa el cursor, toca o enfoca una barra para ver el detalle.</p></details>
         </details>
         <details class="dashboard-section" open>
           <summary>Ingresos, gastos y ahorro en el tiempo</summary>
-          <p>El ahorro neto es ingresos menos gastos; las transferencias y los aportes a metas no se restan. Señala, toca o enfoca un punto para ver los valores del mes.</p>
           <div id="dashboard-trend-chart" class="visualization"></div>
           <ul id="dashboard-trend" class="visually-hidden" aria-label="Datos mensuales de ingresos, gastos y ahorro"></ul>
+          <details class="dashboard-info"><summary>Cómo leer este gráfico</summary><p>El ahorro neto es ingresos menos gastos; las transferencias y los aportes a metas no se restan. Señala, toca o enfoca un punto para ver los valores del mes.</p></details>
         </details>
-        <details class="dashboard-section">
+        <details class="dashboard-section" open>
+          <summary>Mayores gastos del mes</summary>
+          <div id="dashboard-top-chart" class="visualization"></div>
+          <details class="dashboard-info"><summary>Cómo leer este gráfico</summary><p>Los colores comparan cada gasto con el mayor del mes. Señala, toca o enfoca una barra para ver su detalle.</p></details>
+        </details>
+        <details class="dashboard-section" open>
           <summary>Gastos por categoría y evolución</summary>
-          <p>Distribución del mes seleccionado. Señala, toca o selecciona una categoría para ver su evolución; interactúa con un punto para ver el gasto del mes.</p>
           <div class="category-explorer">
             <div id="dashboard-category-chart" class="visualization"></div>
             <div class="category-evolution">
@@ -112,17 +111,17 @@
               <ul id="category-evolution-values" class="visually-hidden" aria-label="Valores mensuales de la categoría seleccionada"></ul>
             </div>
           </div>
+          <details class="dashboard-info"><summary>Cómo leer este gráfico</summary><p>Distribución del mes seleccionado. Señala, toca o selecciona una categoría para ver su evolución; interactúa con un punto para ver el gasto del mes.</p></details>
         </details>
-        <details class="dashboard-section">
+        <details class="dashboard-section" open>
           <summary>Ritmo de gasto dentro del mes</summary>
-          <p>Compara solo los gastos con presupuesto contra un ritmo uniforme. Los gastos sin presupuesto se informan aparte. Señala, toca o enfoca un punto para ver los valores del día.</p>
           <p id="dashboard-pace-note"></p>
           <div id="dashboard-pace-chart" class="visualization"></div>
           <ul id="dashboard-pace" class="visually-hidden" aria-label="Valores diarios del ritmo de gasto"></ul>
+          <details class="dashboard-info"><summary>Cómo leer este gráfico</summary><p>Compara solo los gastos con presupuesto contra un ritmo uniforme. Los gastos sin presupuesto se informan aparte. Señala, toca o enfoca un punto para ver los valores del día.</p></details>
         </details>
-        <details class="dashboard-section">
+        <details class="dashboard-section" open>
           <summary>Proyección de metas de ahorro</summary>
-          <p>Proyección de metas pendientes desde hoy según el promedio de aportes de los últimos tres meses completos, incluidos los meses sin aportes. No es una garantía. Señala, toca o enfoca un punto para ver el detalle.</p>
           <div id="goal-projection-controls" hidden>
             <label for="goal-projection-select">Meta de ahorro</label>
             <select id="goal-projection-select"></select>
@@ -130,18 +129,15 @@
           <p id="goal-projection-status" role="status" aria-live="polite"></p>
           <div id="goal-projection-chart" class="visualization"></div>
           <ul id="goal-projection-values" class="visually-hidden" aria-label="Valores de la proyección de ahorro"></ul>
+          <details class="dashboard-info"><summary>Cómo leer este gráfico</summary><p>Proyección de metas pendientes desde hoy según el promedio de aportes de los últimos tres meses completos, incluidos los meses sin aportes. No es una garantía. Señala, toca o enfoca un punto para ver el detalle.</p></details>
         </details>
-        <details class="dashboard-section">
+        <details class="dashboard-section" open>
           <summary>Evolución de saldos por cuenta</summary>
-          <p>Saldos de cada cuenta activa en CLP y su total, incluidos los ajustes. Antes de la fecha inicial, el saldo se desconoce y no se incluye en el total. Señala, toca o enfoca un punto para ver el detalle. No incluye otros activos ni deudas.</p>
           <div id="dashboard-balance-chart" class="visualization"></div>
           <ul id="dashboard-balances" class="visually-hidden" aria-label="Saldos mensuales por cuenta"></ul>
+          <details class="dashboard-info"><summary>Cómo leer este gráfico</summary><p>Saldos de cada cuenta activa en CLP y su total, incluidos los ajustes. Antes de la fecha inicial, el saldo se desconoce y no se incluye en el total. Señala, toca o enfoca un punto para ver el detalle. No incluye otros activos ni deudas.</p></details>
         </details>
-        <details class="dashboard-section">
-          <summary>Mayores gastos del mes</summary>
-          <p>Los colores comparan cada gasto con el mayor del mes. Señala, toca o enfoca una barra para ver su detalle.</p>
-          <div id="dashboard-top-chart" class="visualization"></div>
-        </details>
+        </div>
         </div>
       </section>
     </section>

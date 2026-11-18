@@ -1,8 +1,8 @@
 import {
   todayText, formatMoney, moneyInCents, formatCents,
-} from "./common.js?v=24";
-import { refreshDashboard } from "./analytics.js?v=24";
-import { loadMovementHistory, refreshAccounts } from "./movements.js?v=24";
+} from "./common.js?v=27";
+import { refreshDashboard } from "./analytics.js?v=27";
+import { loadMovementHistory, refreshAccounts } from "./movements.js?v=27";
 
 const savingsStatus = document.querySelector("#savings-status");
 const savingsEmpty = document.querySelector("#savings-empty");
