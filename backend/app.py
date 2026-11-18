@@ -75,11 +75,18 @@ async def authenticate(action: str, request: Request, store: AuthStore = Depends
 
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "frontend"
+ASSET_DIR = WEB_DIR.parent / "assets"
 
 
 @app.get("/", include_in_schema=False)
 def dashboard():
     return FileResponse(WEB_DIR / "index.html", media_type="text/html", headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/assets/finance-tracker-icon.svg", include_in_schema=False)
+def finance_tracker_icon():
+    return FileResponse(ASSET_DIR / "finance-tracker-icon.svg", media_type="image/svg+xml",
+                        headers={"Cache-Control": "no-cache"})
 
 
 @app.get("/{filename}", include_in_schema=False)

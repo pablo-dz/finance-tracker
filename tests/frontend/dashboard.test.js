@@ -311,6 +311,11 @@ test("los módulos coordinan la sesión, los movimientos y la planificación", a
   await waitFor(() => element("#expense-form [name=categoryId]").options.length === 2);
   await waitFor(() => !element("#dashboard-content").hidden);
   assert.equal(element("#user-email").textContent, "test@example.test");
+  assert.equal(window.document.title, "Finance Tracker");
+  assert.equal(element('link[rel="icon"]').getAttribute("href"), "/assets/finance-tracker-icon.svg");
+  assert.equal(element(".brand img").getAttribute("src"), "/assets/finance-tracker-icon.svg");
+  assert.equal(element(".site-footer a[aria-label*='GitHub']").href, "https://github.com/pablo-dz/finance-tracker");
+  assert.equal(element(".site-footer a[aria-label*='LinkedIn']").href, "https://www.linkedin.com/in/paaldz/");
   assert.equal(element("#dashboard-view").hidden, false);
   assert.equal(window.document.querySelectorAll(".dashboard-grid > .dashboard-section[open]").length, 7);
   assert.equal(window.document.body.classList.contains("dashboard-layout"), true);

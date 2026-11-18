@@ -151,18 +151,21 @@ class DashboardTest(unittest.TestCase):
         with TestClient(app) as client:
             for path, content_type in (("/", "text/html"), ("/dashboard.js", "text/javascript"),
                                        ("/chart.js", "text/javascript"), ("/styles.css", "text/css"),
+                                       ("/assets/finance-tracker-icon.svg", "image/svg+xml"),
                                        *[(f"/modules/{name}.js", "text/javascript") for name in
                                          ("auth", "common", "expenses", "movements", "planning", "savings", "analytics", "visualizations")]):
                 response = client.get(path)
                 self.assertEqual(response.status_code, 200)
                 self.assertTrue(response.headers["content-type"].startswith(content_type))
                 self.assertEqual(response.headers["cache-control"], "no-cache")
-            self.assertEqual(client.get("/styles.css?v=24").status_code, 200)
+            self.assertIn(b"<svg", client.get("/assets/finance-tracker-icon.svg").content)
+            self.assertEqual(client.get("/styles.css?v=25").status_code, 200)
             self.assertEqual(client.get("/dashboard.js?v=27").status_code, 200)
             self.assertEqual(client.get("/modules/planning.js?v=27").status_code, 200)
             self.assertEqual(client.get("/modules/reports.js").status_code, 404)
             self.assertEqual(client.get("/server.js").status_code, 404)
             self.assertEqual(client.get("/modules/unknown.js").status_code, 404)
+            self.assertEqual(client.get("/assets/unknown.svg").status_code, 404)
 
 
 if __name__ == "__main__":
