@@ -2,6 +2,8 @@ import json
 
 from fastapi.responses import JSONResponse
 
+from . import config
+
 
 def json_response(data, status_code=200):
     return JSONResponse(data, status_code=status_code, headers={"Cache-Control": "no-store"})
@@ -13,8 +15,8 @@ def reject_json_constant(value):
 
 async def read_json_body(request):
     server = request.scope.get("server")
-    origin = f"http://127.0.0.1:{server[1]}" if server else None
-    if (not origin or request.headers.get("host") != origin.removeprefix("http://")
+    origin = config.PUBLIC_ORIGIN or (f"http://127.0.0.1:{server[1]}" if server else None)
+    if (not origin or request.headers.get("host") != origin.split("://", 1)[1]
             or request.headers.get("origin") != origin
             or request.headers.get("content-type") != "application/json"):
         return None, json_response({"error": "Solicitud no permitida."}, 403)

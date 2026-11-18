@@ -24,6 +24,7 @@ Proyecto para entender ingresos, gastos, transferencias, presupuestos y metas de
 - `db/migrations/009_dated_account_balances.sql`: saldos iniciales con fecha y ajustes de saldo.
 - `db/migrations/010_savings_contribution_transfers.sql`: vincula los aportes a transferencias entre cuentas.
 - `db/migrations/011_savings_goal_account.sql`: vincula cada meta a su cuenta de ahorro de destino.
+- `db/migrations/012_auth_throttling.sql`: límites persistentes para intentos de autenticación en modo remoto.
 - `db/seeds/001_demo.sql`: datos **ficticios**, separados de los datos reales.
 
 ## Preparar una base nueva
@@ -44,6 +45,7 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/008_recurring_payments.
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/009_dated_account_balances.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/010_savings_contribution_transfers.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/011_savings_goal_account.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/012_auth_throttling.sql
 ```
 
 Las migraciones existentes no son repetibles: **no las vuelvas a ejecutar sobre una base ya preparada**. Verifica la conexión y respalda los datos; aplica solo las migraciones pendientes en orden. La migración 007 no vincula los perfiles existentes a ninguna cuenta: los nuevos usuarios empiezan con un perfil personal nuevo. No hay un mecanismo automático que registre qué migraciones se aplicaron.
@@ -141,7 +143,25 @@ En «Categorías» puedes crear y renombrar categorías personales, clasificarla
 En «Metas de ahorro» puedes crear metas con monto objetivo, cuenta de tipo ahorro y fecha opcional. Cada aporte transfiere dinero desde otra cuenta hacia la cuenta de ahorro asociada a la meta; no es ingreso ni gasto. Los aportes futuros aparecen en el historial pero solo cuentan para el avance y los saldos desde su fecha. Las metas anteriores necesitan que se les asigne su cuenta de ahorro: al confirmar, las transferencias vinculadas que salían de esa cuenta se invierten y los saldos históricos cambian. Si una transferencia vinculada no utiliza esa cuenta, la asignación se rechaza para que revises el historial. Los aportes antiguos sin cuentas no modifican saldos hasta que asignes su cuenta de origen individualmente; al hacerlo se crea una transferencia en la fecha original. Si ya registraste esa transferencia por separado, se duplicará: revísala antes de asignar las cuentas. Las metas completadas se muestran en un apartado separado y no aceptan nuevos aportes. Si eliminas un aporte o una meta, también se eliminan sus transferencias y se revierten sus efectos en los saldos. Las transferencias vinculadas se administran desde la meta, no desde «Movimientos».
 Accede a estas funciones desde «Metas de ahorro» en la navegación; «Dashboard» vuelve al resumen financiero y «Movimientos» al registro e historial. La consulta de metas es independiente del mes seleccionado.
 
-Las cuentas usan contraseñas derivadas con `scrypt` y sesiones locales con cookies `HttpOnly`. No hay verificación de correo ni recuperación de contraseña. El servidor escucha únicamente en `127.0.0.1`; no lo expongas a internet ni a redes compartidas. El usuario configurado para conectarse a PostgreSQL es una credencial técnica distinta de la cuenta con la que inicias sesión en la aplicación. Respalda regularmente tu base de datos.
+Las cuentas usan contraseñas derivadas con `scrypt` y sesiones con cookies `HttpOnly`. No hay verificación de correo ni recuperación de contraseña. Sin configuración remota, el servidor escucha únicamente en `127.0.0.1`; no expongas esa configuración a internet ni a redes compartidas. El usuario configurado para conectarse a PostgreSQL es una credencial técnica distinta de la cuenta con la que inicias sesión en la aplicación. Respalda regularmente tu base de datos.
+
+## Preparación remota gratuita: Render y Neon
+
+**Antes de publicar datos financieros reales**, realiza una revisión de seguridad independiente. El registro es público, no se verifica la propiedad del correo y no existe recuperación de contraseña ni autenticación multifactor. Los límites de intentos reducen el abuso, pero no evitan todos los ataques ni garantizan disponibilidad.
+
+1. Crea un proyecto y una base **nueva y vacía** en el plan gratuito de Neon. No uses la base local ni publiques credenciales. Conserva la URL de conexión directa para migraciones y respaldos; usa la URL con pooler para la aplicación.
+2. Desde macOS, con el entorno Python preparado, ejecuta `.venv/bin/python -m backend.migrate_neon` y pega la URL directa de Neon cuando se solicite; la entrada permanece oculta. La herramienta verifica el certificado y el nombre del servidor, rechaza la URL con pooler y no modifica una base que ya tenga el esquema `finance`. Si falla una migración, detente y revisa cuáles se aplicaron antes de volver a intentarlo. Alternativamente, usa `psql` para aplicar una vez las migraciones 001 a 012 en orden siguiendo «Preparar una base nueva», con TLS y verificación de certificado y nombre (`sslmode=verify-full` y un `sslrootcert` apropiado para tu sistema). Nunca pegues la URL con contraseña en el código ni en el historial del terminal.
+3. Una vez revisados y confirmados los cambios, publica la rama en GitHub. En Render, crea un **Web Service**, selecciona este repositorio y la rama, Python y el plan **Free**. Configura:
+   - Build: `pip install -r backend/requirements.txt`
+   - Start: `python -m backend`
+   - `DATABASE_URL`: URL con pooler de Neon, con `sslmode=verify-full` y la ruta del certificado raíz del sistema; consérvala como variable privada en Render.
+   - `PUBLIC_ORIGIN`: origen HTTPS exacto de Render, por ejemplo `https://nombre.onrender.com`, sin ruta ni barra final. Comprueba el dominio asignado y corrígelo si es distinto.
+4. Comprueba por HTTPS el registro, inicio y cierre de sesión, movimientos y aislamiento entre dos cuentas de prueba, sin usar datos financieros reales. El modo remoto requiere `PUBLIC_ORIGIN`, cookies `Secure` y el origen y host exactos; nunca confía en encabezados de origen reenviados por el cliente.
+5. Antes de guardar datos reales, define y prueba respaldos independientes: usa `pg_dump` con la conexión directa, guarda el archivo cifrado fuera del repositorio y verifica su restauración en una base separada. No incluyas contraseñas ni datos reales en pruebas o registros.
+
+Los planes gratuitos tienen límites y pueden cambiar: Render suspende la web tras 15 minutos sin tráfico y puede tardar aproximadamente un minuto en reactivarla; Neon suspende el cómputo tras inactividad y limita almacenamiento y uso. Render advierte que su plan gratuito no es para producción y puede suspender servicios o generar cargos al superar cuotas si hay un método de pago. No uses Render Postgres gratuito para datos permanentes: caduca tras 30 días. Revisa [Render Free](https://render.com/docs/free) y [planes de Neon](https://neon.com/docs/introduction/plans).
+
+En remoto se permiten 10 intentos de registro o acceso por correo cada 15 minutos y 60 en total por minuto, compartidos entre usuarios. Al superar un límite se devuelve `429` con `Retry-After`. Un límite global puede bloquear temporalmente a usuarios legítimos durante un pico de tráfico.
 
 Para ejecutar las pruebas:
 
@@ -151,7 +171,7 @@ npm test
 
 ## API Python
 
-El backend y el servidor del dashboard usan Python; la interfaz sigue usando JavaScript en el navegador. La API utiliza por defecto la base local `finance_tracker`, o `DATABASE_URL` y las variables estándar de PostgreSQL para otra conexión. Conserva las cuentas y sesiones existentes. Escucha solo en el equipo local; no la expongas a internet ni a redes compartidas.
+El backend y el servidor del dashboard usan Python; la interfaz sigue usando JavaScript en el navegador. La API utiliza por defecto la base local `finance_tracker`, o `DATABASE_URL` y las variables estándar de PostgreSQL para otra conexión. Conserva las cuentas y sesiones existentes. Sin `PUBLIC_ORIGIN` escucha solo en el equipo local.
 
 Las pruebas de integración con PostgreSQL se omiten por defecto. Para incluirlas junto con las pruebas de la interfaz, ejecuta `FINANCE_TEST_ADMIN_DATABASE=finance_tracker npm test`. Requieren permiso para crear bases: crean bases temporales separadas y las eliminan al terminar; no modifican la base indicada. Las pruebas también comprueban la compatibilidad con cuentas y sesiones creadas por el servidor anterior de Node.
 
