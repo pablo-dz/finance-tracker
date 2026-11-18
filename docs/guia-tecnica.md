@@ -1,0 +1,200 @@
+# Guía técnica de Finance Tracker
+
+Proyecto para entender ingresos, gastos, transferencias, presupuestos y metas de ahorro en pesos chilenos (CLP). La colaboración con otras personas queda para una etapa futura. Los comandos de esta guía se ejecutan desde la raíz del proyecto, salvo que se indique lo contrario.
+
+## Estructura del proyecto
+
+- `backend/`: API y servidor del dashboard en Python.
+- `frontend/`: interfaz web en HTML, CSS y JavaScript.
+- `frontend/modules/`: módulos de autenticación, movimientos, planificación, ahorro y dashboard.
+- `tests/backend/` y `tests/frontend/`: pruebas del backend y de la interfaz.
+- `db/migrations/`: esquema y migraciones de PostgreSQL.
+- `db/seeds/`: datos ficticios opcionales para pruebas manuales.
+
+## Base de datos
+
+- `db/migrations/001_schema.sql`: tablas de hogares, integrantes, cuentas, categorías, movimientos, presupuestos y metas.
+- `db/migrations/002_bi_views.sql`: vistas de consulta que podrán servir como base para el dashboard web. Se conserva el nombre original de la migración.
+- `db/migrations/003_reference_data.sql`: hogar, integrante y categorías iniciales.
+- `db/migrations/004_account_balances_and_transfers.sql`: saldo inicial por cuenta y registro de transferencias.
+- `db/migrations/005_savings_goal_contributions.sql`: registro de aportes y avance de metas de ahorro.
+- `db/migrations/006_personal_category_archiving.sql`: permite archivar categorías sin borrar su historial.
+- `db/migrations/007_user_accounts.sql`: cuentas locales, sesiones y asociación de perfiles personales a usuarios.
+- `db/migrations/008_recurring_payments.sql`: pagos recurrentes personales registrados manualmente.
+- `db/migrations/009_dated_account_balances.sql`: saldos iniciales con fecha y ajustes de saldo.
+- `db/migrations/010_savings_contribution_transfers.sql`: vincula los aportes a transferencias entre cuentas.
+- `db/migrations/011_savings_goal_account.sql`: vincula cada meta a su cuenta de ahorro de destino.
+- `db/migrations/012_auth_throttling.sql`: límites persistentes para intentos de autenticación en modo remoto.
+- `db/seeds/001_demo.sql`: datos **ficticios**, separados de los datos reales.
+
+## Preparar una base nueva
+
+Necesitas PostgreSQL y el cliente `psql`. Crea una base vacía usando el procedimiento de tu instalación y configura la conexión localmente; por ejemplo, define la variable de entorno `DATABASE_URL` con una URL de PostgreSQL. No incluyas contraseñas en archivos versionados.
+
+En una base **nueva y vacía**, ejecuta las migraciones en orden desde la raíz del proyecto:
+
+```bash
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/001_schema.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/002_bi_views.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/003_reference_data.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/004_account_balances_and_transfers.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/005_savings_goal_contributions.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/006_personal_category_archiving.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/007_user_accounts.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/008_recurring_payments.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/009_dated_account_balances.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/010_savings_contribution_transfers.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/011_savings_goal_account.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/012_auth_throttling.sql
+```
+
+Las migraciones existentes no son repetibles: **no las vuelvas a ejecutar sobre una base ya preparada**. Verifica la conexión y respalda los datos; aplica solo las migraciones pendientes en orden. La migración 007 no vincula los perfiles existentes a ninguna cuenta: los nuevos usuarios empiezan con un perfil personal nuevo. No hay un mecanismo automático que registre qué migraciones se aplicaron.
+
+## Datos ficticios para pruebas manuales (opcional)
+
+Conéctate a la base correcta y ejecuta:
+
+```bash
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/seeds/001_demo.sql
+```
+
+El script carga un conjunto separado de datos ficticios con movimientos y presupuestos. No necesitas cargarlo para usar el tracker: la aplicación muestra únicamente el perfil personal configurado y no tiene una vista de datos de prueba.
+
+Si el conjunto ficticio ya existe, el script termina con error sin insertar nada; no lo ejecutes nuevamente para actualizar los datos.
+
+## Inspeccionar los datos ficticios
+
+Entra con `psql "$DATABASE_URL"` y ejecuta:
+
+```sql
+-- Ingresos y gastos por mes del conjunto ficticio, sin incluir transferencias.
+SELECT date_trunc('month', t.tx_date)::date AS mes,
+       SUM(t.amount) FILTER (WHERE t.type = 'income') AS ingresos,
+       SUM(t.amount) FILTER (WHERE t.type = 'expense') AS gastos
+FROM finance.transactions t
+JOIN finance.household h ON h.household_id = t.household_id
+WHERE h.name = '[DEMO] Hogar de prueba'
+GROUP BY 1
+ORDER BY 1 DESC;
+
+-- Gastos del mes actual por categoría.
+SELECT c.name AS categoria, SUM(t.amount) AS gastado
+FROM finance.transactions t
+JOIN finance.household h ON h.household_id = t.household_id
+JOIN finance.category c ON c.category_id = t.category_id
+WHERE h.name = '[DEMO] Hogar de prueba'
+  AND t.type = 'expense'
+  AND t.tx_date >= date_trunc('month', current_date)::date
+  AND t.tx_date < (date_trunc('month', current_date) + interval '1 month')::date
+GROUP BY c.name
+ORDER BY gastado DESC;
+```
+
+Usa `\q` para salir de `psql`. La diferencia entre ingresos y gastos no equivale necesariamente al ahorro real: puede haber transferencias u otros movimientos no registrados.
+
+## Dashboard personal
+
+Necesitas Python 3.10 o superior, Node.js 22 o superior y npm. Con PostgreSQL iniciado y las migraciones aplicadas, prepara el entorno una sola vez desde la raíz del proyecto:
+
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install -r backend/requirements-test.txt
+npm install
+```
+
+Después inicia la aplicación con:
+
+```bash
+npm start
+```
+
+Por defecto, la aplicación se conecta a la base local `finance_tracker`. Para usar otra base, configura `PGDATABASE` antes de iniciar. Al abrir la página, crea una cuenta con tu correo y contraseña. La aplicación crea un perfil personal nuevo, una cuenta principal y categorías iniciales asociados a esa cuenta. Los perfiles y movimientos que ya existían antes de aplicar la migración 007 quedan sin asociar y no se muestran; no se copian ni se eliminan.
+
+También puedes configurar la conexión con `DATABASE_URL`, o con las variables de PostgreSQL `PGHOST`, `PGPORT`, `PGUSER` y `PGPASSWORD`. No guardes contraseñas en archivos versionados.
+
+Abre [http://127.0.0.1:3000](http://127.0.0.1:3000). Si el puerto 3000 está ocupado, puedes indicar otro con `PORT=3001 npm start` y abrir `http://127.0.0.1:3001`. En «Movimientos» puedes registrar ingresos y egresos y consultar su historial completo, ordenado por fecha, independientemente del mes del dashboard. Las transferencias se registran y muestran por separado: mueven saldo entre cuentas y no cuentan como ingreso ni gasto. Puedes editar y eliminar movimientos personales desde sus listas; la edición de gastos e ingresos solo admite pesos enteros, por lo que los registros existentes con centavos no se pueden editar. Las transferencias admiten centavos. Las eliminaciones son permanentes. Para detener el servidor, presiona `Ctrl+C`.
+
+En el menú «Cuentas», consulta tus saldos y crea cuentas indicando nombre, tipo, saldo inicial y fecha desde la que comienza su seguimiento. Para cuentas pendientes, configura una sola vez el saldo inicial y la fecha. Ese saldo es anterior a los movimientos de ese día y no se permiten movimientos o ajustes anteriores a la fecha. Las cuentas existentes conservan su saldo inicial y su historial anterior sin cambios. Para corregir diferencias, registra un ajuste positivo o negativo con fecha y motivo: afecta al saldo desde esa fecha, pero no cuenta como ingreso o gasto. Los ajustes pueden consultarse y eliminarse desde «Cuentas».
+
+En «Movimientos» puedes combinar filtros de fecha, tipo, categoría, descripción y cuenta; las fechas incluyen ambos extremos. La búsqueda de descripción no distingue mayúsculas ni tildes. Los filtros también se aplican a las transferencias: la cuenta puede ser de origen o destino, y al seleccionar una categoría no aparecen porque no tienen categoría. Usa «Limpiar filtros» para volver a ver todo.
+
+Al actualizar los módulos JavaScript, incrementa la versión `?v=` del módulo principal y de todas sus importaciones para evitar que el navegador mezcle versiones incompatibles.
+
+El dashboard mensual organiza los indicadores y gráficos en tarjetas adaptables al ancho de la pantalla; puedes contraer cada gráfico desde su título. Compara ingresos, gastos, ahorro neto y tasa de ahorro con el mes anterior. Bajo el total de gastos muestra el desglose de gastos fijos y variables, y los sin clasificar cuando existen. El ahorro neto es ingresos menos gastos; no descuenta transferencias ni aportes a metas. Sin ingresos no se calcula la tasa. El gráfico de presupuestos compara el gasto con el límite de cada categoría en una escala común en CLP: verde si está dentro del límite y rojo si lo supera. Pasa el cursor, toca o enfoca una barra para ver sus importes y alertas desde el 80 %; las categorías sin presupuesto aparecen aparte. Incluye tendencias de 6 o 12 meses por categoría, un gráfico de los mayores gastos del mes y una comparación del gasto acumulado con un ritmo uniforme basado únicamente en categorías presupuestadas; el gasto sin presupuesto se informa aparte. En el gráfico de mayores gastos, señala, toca o enfoca una barra para ver la fecha y el monto. El color compara cada gasto con el mayor del mes: verde por debajo de un tercio, amarillo desde un tercio y rojo desde dos tercios.
+
+El ritmo ideal distribuye uniformemente el presupuesto mensual entre los días del mes. Para el día $d$, con presupuesto total $P$ en pesos y $D$ días en el mes:
+
+```math
+\text{Ritmo ideal acumulado}(d) = \frac{\left\lfloor 100 \times P \times d / D \right\rfloor}{100}
+```
+
+$P$ es la suma de los límites configurados para ese mes. El resultado se trunca al centavo; el día 0 comienza en cero. Por ejemplo, con un presupuesto de $900.000 en un mes de 30 días, el ritmo ideal al día 10 es $300.000. El gráfico lo compara con los gastos acumulados de categorías con presupuesto; los demás gastos se indican por separado. Es una referencia uniforme, no una predicción ni una consideración de las fechas reales de los pagos.
+
+Los gráficos de líneas muestran ingresos, gastos y ahorro, ritmo de gasto y evolución de saldos; el gráfico de composición muestra la distribución mensual por categoría. Los gráficos con ejes indican el período o categoría en el eje horizontal y el monto en CLP en el vertical. La escala incluye cero y agrega un margen del 10 % sobre el máximo positivo y bajo el mínimo negativo, redondeado al centavo; cuando no hay valores positivos, usa el 10 % de la magnitud negativa como margen superior. En los gráficos de ingresos, gastos y ahorro, ritmo de gasto y saldos, señala, toca o enfoca un punto para ver los valores del mes o día. En el gráfico de categorías, señala, toca o selecciona una porción o su leyenda para ver su evolución con el mismo color; interactúa con un punto de la evolución para ver el gasto del mes. Las categorías con gastos solo en meses anteriores también aparecen en la leyenda. El efecto de profundidad es visual y las proporciones corresponden a los importes del mes. Los gráficos de líneas se desplazan horizontalmente cuando no caben.
+
+Puedes clasificar categorías como fijas o variables; su clasificación actual se aplica también al historial. Elige una meta pendiente para ver su proyección desde hoy hasta la fecha estimada, calculada con el promedio de aportes de los últimos tres meses calendario completos anteriores al mes actual. Las metas alcanzadas no aparecen en el selector y siguen disponibles en «Metas de ahorro». La línea horizontal marca el objetivo y los puntos muestran la fecha y el monto proyectado, limitado al objetivo y truncado al centavo. Para plazos largos se muestran como máximo 13 puntos repartidos en el período. La proyección no es una garantía y no predice una fecha si no hubo aportes; también indica si la fecha queda fuera del rango disponible. La proyección usa la fecha actual, independientemente del mes seleccionado en el dashboard.
+
+La evolución de saldos muestra cada cuenta activa en CLP y el total al cierre de cada mes o hasta hoy, incluyendo transferencias y ajustes. Los saldos iniciales de cuentas nuevas se incluyen desde su fecha de inicio; antes de esa fecha se muestran como «Sin datos» y no se incluyen en el total. Las cuentas sin saldo inicial configurado también aparecen sin datos. Los saldos iniciales de cuentas existentes siguen considerándose anteriores a todos sus movimientos. No es una medición completa del patrimonio: excluye cuentas inactivas, otras monedas y activos o deudas no registrados. Los saldos actuales individuales aparecen en «Cuentas».
+
+En «Categorías», consulta un mes y escribe el presupuesto junto a cada categoría. El mes seleccionado también actualiza el dashboard. Guarda los presupuestos junto con las categorías mediante «Actualizar categorías»; deja un campo vacío para quitar ese presupuesto del mes. El límite se configura por separado para cada mes, en pesos enteros; también puede ser cero. Los presupuestos existentes con centavos se conservan si no se modifican. El gráfico del dashboard compara el gasto personal de ese mes en CLP con el límite y muestra lo disponible o excedido. No incluye ingresos, transferencias, gastos sin categoría ni gastos en otras monedas. Si otra operación modifica un presupuesto desde que se consultó, descarta los cambios y vuelve a consultar antes de guardarlo.
+
+En «Categorías» puedes crear y renombrar categorías personales, clasificarlas como fijas o variables, y archivar o restaurar las que ya no uses. Los cambios se guardan juntos solo al pulsar «Actualizar categorías»; también puedes descartarlos y recargar. Las nuevas categorías son variables por defecto. Archivar no borra los gastos ni presupuestos anteriores; las categorías archivadas dejan de estar disponibles para nuevos gastos y presupuestos. Al renombrar o reclasificar una categoría, el cambio también aparece en sus registros anteriores.
+
+En «Metas de ahorro» puedes crear metas con monto objetivo, cuenta de tipo ahorro y fecha opcional. Cada aporte transfiere dinero desde otra cuenta hacia la cuenta de ahorro asociada a la meta; no es ingreso ni gasto. Los aportes futuros aparecen en el historial pero solo cuentan para el avance y los saldos desde su fecha. Las metas anteriores necesitan que se les asigne su cuenta de ahorro: al confirmar, las transferencias vinculadas que salían de esa cuenta se invierten y los saldos históricos cambian. Si una transferencia vinculada no utiliza esa cuenta, la asignación se rechaza para que revises el historial. Los aportes antiguos sin cuentas no modifican saldos hasta que asignes su cuenta de origen individualmente; al hacerlo se crea una transferencia en la fecha original. Si ya registraste esa transferencia por separado, se duplicará: revísala antes de asignar las cuentas. Las metas completadas se muestran en un apartado separado y no aceptan nuevos aportes. Si eliminas un aporte o una meta, también se eliminan sus transferencias y se revierten sus efectos en los saldos. Las transferencias vinculadas se administran desde la meta, no desde «Movimientos».
+Accede a estas funciones desde «Metas de ahorro» en la navegación; «Dashboard» vuelve al resumen financiero y «Movimientos» al registro e historial. La consulta de metas es independiente del mes seleccionado.
+
+Las cuentas usan contraseñas derivadas con `scrypt` y sesiones con cookies `HttpOnly`. No hay verificación de correo ni recuperación de contraseña. Sin configuración remota, el servidor escucha únicamente en `127.0.0.1`; no expongas esa configuración a internet ni a redes compartidas. El usuario configurado para conectarse a PostgreSQL es una credencial técnica distinta de la cuenta con la que inicias sesión en la aplicación. Respalda regularmente tu base de datos.
+
+## Preparación remota gratuita: Render y Neon
+
+**Antes de publicar datos financieros reales**, realiza una revisión de seguridad independiente. El registro es público, no se verifica la propiedad del correo y no existe recuperación de contraseña ni autenticación multifactor. Los límites de intentos reducen el abuso, pero no evitan todos los ataques ni garantizan disponibilidad.
+
+1. Crea un proyecto y una base **nueva y vacía** en el plan gratuito de Neon. No uses la base local ni publiques credenciales. Conserva la URL de conexión directa para migraciones y respaldos; usa la URL con pooler para la aplicación.
+2. Desde macOS, con el entorno Python preparado, ejecuta `.venv/bin/python -m backend.migrate_neon` y pega la URL directa de Neon cuando se solicite; la entrada permanece oculta. La herramienta verifica el certificado y el nombre del servidor, rechaza la URL con pooler y no modifica una base que ya tenga el esquema `finance`. Si falla una migración, detente y revisa cuáles se aplicaron antes de volver a intentarlo. Alternativamente, usa `psql` para aplicar una vez las migraciones 001 a 012 en orden siguiendo «Preparar una base nueva», con TLS y verificación de certificado y nombre (`sslmode=verify-full` y un `sslrootcert` apropiado para tu sistema). Nunca pegues la URL con contraseña en el código ni en el historial del terminal.
+3. Una vez revisados y confirmados los cambios, intégralos en `main`. En Render, crea un **Web Service**, selecciona este repositorio y la rama `main`, Python y el plan **Free**. Configura:
+   - Build: `pip install -r backend/requirements.txt`
+   - Start: `python -m backend`
+   - `DATABASE_URL`: URL con pooler de Neon, con `sslmode=verify-full` y la ruta del certificado raíz del sistema; consérvala como variable privada en Render.
+   - `PUBLIC_ORIGIN`: origen HTTPS exacto de Render, por ejemplo `https://nombre.onrender.com`, sin ruta ni barra final. Comprueba el dominio asignado y corrígelo si es distinto.
+4. Comprueba por HTTPS el registro, inicio y cierre de sesión, movimientos y aislamiento entre dos cuentas de prueba, sin usar datos financieros reales. El modo remoto requiere `PUBLIC_ORIGIN`, cookies `Secure` y el origen y host exactos; nunca confía en encabezados de origen reenviados por el cliente.
+5. Antes de guardar datos reales, crea respaldos independientes cifrados y verifica su restauración en una base separada. No incluyas contraseñas ni datos reales en pruebas o registros.
+
+### Respaldo manual cifrado en macOS
+
+Con `pg_dump` y `gpg` instalados, ejecuta desde la raíz del proyecto:
+
+```bash
+.venv/bin/python -m backend.backup_neon
+```
+
+Pega la URL **directa** de Neon cuando se solicite y elige una contraseña de cifrado distinta de la contraseña de la base. Las entradas permanecen ocultas. La herramienta verifica TLS, guarda un archivo cifrado en `~/Documents/finance-tracker-backups` y comprueba su descifrado sin guardar una copia sin cifrar. La copia contiene datos y sesiones: conserva la contraseña por separado, no subas el respaldo al repositorio y guárdalo también en otro dispositivo seguro.
+
+El respaldo es **manual**: repítelo después de cambios importantes. Verificar el descifrado no prueba la restauración. Para probar la copia más reciente en una base temporal de PostgreSQL en tu Mac (requiere permiso para crear bases), ejecuta:
+
+```bash
+.venv/bin/python -m backend.verify_backup_neon
+```
+
+La prueba restaura la copia localmente y elimina la base temporal, también si falla. Comprueba que se restauraron tablas esenciales, sin verificar el contenido de cada registro. La restauración requiere una versión de PostgreSQL compatible con la copia: algunas versiones de Neon generan opciones internas como `pg_attver` que versiones locales más antiguas pueden rechazar. En ese caso, la copia sigue cifrada, pero su restauración completa no queda verificada. Nunca restaures sobre la base activa sin respaldo y confirmación. Si pierdes la contraseña, no podrás recuperar la copia.
+
+Los planes gratuitos tienen límites y pueden cambiar: Render suspende la web tras 15 minutos sin tráfico y puede tardar aproximadamente un minuto en reactivarla; Neon suspende el cómputo tras inactividad y limita almacenamiento y uso. Render advierte que su plan gratuito no es para producción y puede suspender servicios o generar cargos al superar cuotas si hay un método de pago. No uses Render Postgres gratuito para datos permanentes: caduca tras 30 días. Revisa [Render Free](https://render.com/docs/free) y [planes de Neon](https://neon.com/docs/introduction/plans).
+
+En remoto se permiten 10 intentos de registro o acceso por correo cada 15 minutos y 60 en total por minuto, compartidos entre usuarios. Al superar un límite se devuelve `429` con `Retry-After`. Un límite global puede bloquear temporalmente a usuarios legítimos durante un pico de tráfico.
+
+Para ejecutar las pruebas:
+
+```bash
+npm test
+```
+
+## API Python
+
+El backend y el servidor del dashboard usan Python; la interfaz sigue usando JavaScript en el navegador. La API utiliza por defecto la base local `finance_tracker`, o `DATABASE_URL` y las variables estándar de PostgreSQL para otra conexión. Conserva las cuentas y sesiones existentes. Sin `PUBLIC_ORIGIN` escucha solo en el equipo local.
+
+Las pruebas de integración con PostgreSQL se omiten por defecto. Para incluirlas junto con las pruebas de la interfaz, ejecuta `FINANCE_TEST_ADMIN_DATABASE=finance_tracker npm test`. Requieren permiso para crear bases: crean bases temporales separadas y las eliminan al terminar; no modifican la base indicada. Las pruebas también comprueban la compatibilidad con cuentas y sesiones creadas por el servidor anterior de Node.
+
+## Próximos pasos
+
+Más adelante, compartir un hogar entre varias cuentas requerirá invitaciones y permisos; esta primera etapa mantiene un perfil personal por usuario.
+
+Trabaja en ramas de funcionalidad y abre un pull request hacia `main`.
