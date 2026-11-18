@@ -3,10 +3,10 @@ import {
   saveButton, incomeFormMessage,
   transferFormMessage, displayName, todayText, formatMoney,
   state,
-} from "./common.js?v=20";
-import { deleteExpense, editExpense, loadExpenses } from "./expenses.js?v=20";
-import { selectMovementMonth } from "./planning.js?v=20";
-import { refreshDashboard } from "./analytics.js?v=20";
+} from "./common.js?v=24";
+import { deleteExpense, editExpense, loadExpenses } from "./expenses.js?v=24";
+import { selectMovementMonth } from "./planning.js?v=24";
+import { refreshDashboard } from "./analytics.js?v=24";
 
 const incomeForm = document.querySelector("#income-form");
 const saveIncomeButton = document.querySelector("#save-income");
@@ -15,6 +15,8 @@ const transferForm = document.querySelector("#transfer-form");
 const saveTransferButton = document.querySelector("#save-transfer");
 const cancelTransferEditButton = document.querySelector("#cancel-transfer-edit");
 const openingBalanceForm = document.querySelector("#opening-balance-form");
+const accountForm = document.querySelector("#account-form");
+const accountFormMessage = document.querySelector("#account-form-message");
 const openingBalanceMessage = document.querySelector("#opening-balance-message");
 const saveOpeningBalanceButton = document.querySelector("#save-opening-balance");
 const adjustmentForm = document.querySelector("#balance-adjustment-form");
@@ -37,6 +39,7 @@ let savingTransfer = false;
 let editingIncomeId = null;
 let editingTransferId = null;
 let savingOpeningBalance = false;
+let savingAccount = false;
 let savingAdjustment = false;
 let incomeOptionsAvailable = false;
 let historyRequest = 0;
@@ -221,7 +224,7 @@ function renderMovementHistory() {
     description.textContent = movement.description;
     metadata.className = "movement-meta";
     const date = movement.date.split("-").reverse().join("/");
-    const type = isTransfer ? "Transferencia" : isExpense ? "Egreso" : "Ingreso";
+    const type = isTransfer ? movement.savingsContribution ? "Aporte a meta" : "Transferencia" : isExpense ? "Egreso" : "Ingreso";
     const account = movement.destinationAccount
       ? `${movement.account} → ${movement.destinationAccount}`
       : movement.account;
@@ -240,7 +243,7 @@ function renderMovementHistory() {
     }
     actions.className = "movement-actions";
     actions.append(amount);
-    if (isTransfer || movement.editable) {
+    if ((isTransfer && !movement.savingsContribution) || (!isTransfer && movement.editable)) {
       const edit = document.createElement("button");
       const remove = document.createElement("button");
       edit.type = "button";
@@ -397,6 +400,8 @@ export async function loadOptions() {
     }
     if (data.accounts.length < 2) {
       transferFormMessage.textContent = "Necesitas al menos dos cuentas activas en CLP para transferir dinero.";
+    } else if (transferFormMessage.textContent === "Necesitas al menos dos cuentas activas en CLP para transferir dinero.") {
+      transferFormMessage.textContent = "";
     }
     return true;
   } catch (error) {
@@ -404,6 +409,38 @@ export async function loadOptions() {
     return false;
   }
 }
+
+accountForm.elements.date.value = todayText;
+accountForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (savingAccount) return;
+  savingAccount = true;
+  const button = accountForm.querySelector("button");
+  button.disabled = true;
+  accountFormMessage.textContent = "Creando cuenta...";
+  try {
+    const values = new FormData(accountForm);
+    const response = await fetch("/api/cuentas", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: values.get("name"), type: values.get("type"),
+        amount: values.get("amount"), date: values.get("date") }),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "No fue posible crear la cuenta.");
+    accountForm.reset();
+    accountForm.elements.date.value = todayText;
+    const loaded = await loadOptions();
+    await refreshDashboard();
+    accountFormMessage.textContent = loaded ? "Cuenta creada correctamente."
+      : "Cuenta creada, pero no se pudo actualizar la lista. Recarga la página.";
+  } catch (error) {
+    accountFormMessage.textContent = error instanceof Error ? error.message : "No fue posible crear la cuenta.";
+  } finally {
+    savingAccount = false;
+    button.disabled = false;
+  }
+});
 
 openingBalanceForm.elements.date.value = todayText;
 openingBalanceForm.addEventListener("submit", async (event) => {

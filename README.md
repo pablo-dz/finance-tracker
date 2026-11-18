@@ -22,6 +22,8 @@ Proyecto para entender ingresos, gastos, transferencias, presupuestos y metas de
 - `db/migrations/007_user_accounts.sql`: cuentas locales, sesiones y asociación de perfiles personales a usuarios.
 - `db/migrations/008_recurring_payments.sql`: pagos recurrentes personales registrados manualmente.
 - `db/migrations/009_dated_account_balances.sql`: saldos iniciales con fecha y ajustes de saldo.
+- `db/migrations/010_savings_contribution_transfers.sql`: vincula los aportes a transferencias entre cuentas.
+- `db/migrations/011_savings_goal_account.sql`: vincula cada meta a su cuenta de ahorro de destino.
 - `db/seeds/001_demo.sql`: datos **ficticios**, separados de los datos reales.
 
 ## Preparar una base nueva
@@ -40,6 +42,8 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/006_personal_category_a
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/007_user_accounts.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/008_recurring_payments.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/009_dated_account_balances.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/010_savings_contribution_transfers.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/011_savings_goal_account.sql
 ```
 
 Las migraciones existentes no son repetibles: **no las vuelvas a ejecutar sobre una base ya preparada**. Verifica la conexión y respalda los datos; aplica solo las migraciones pendientes en orden. La migración 007 no vincula los perfiles existentes a ninguna cuenta: los nuevos usuarios empiezan con un perfil personal nuevo. No hay un mecanismo automático que registre qué migraciones se aplicaron.
@@ -108,7 +112,7 @@ También puedes configurar la conexión con `DATABASE_URL`, o con las variables 
 
 Abre [http://127.0.0.1:3000](http://127.0.0.1:3000). Si el puerto 3000 está ocupado, puedes indicar otro con `PORT=3001 npm start` y abrir `http://127.0.0.1:3001`. En «Movimientos» puedes registrar ingresos y egresos y consultar su historial completo, ordenado por fecha, independientemente del mes del dashboard. Las transferencias se registran y muestran por separado: mueven saldo entre cuentas y no cuentan como ingreso ni gasto. Puedes editar y eliminar movimientos personales desde sus listas; la edición de gastos e ingresos solo admite pesos enteros, por lo que los registros existentes con centavos no se pueden editar. Las transferencias admiten centavos. Las eliminaciones son permanentes. Para detener el servidor, presiona `Ctrl+C`.
 
-En el menú «Cuentas», consulta tus saldos y configura una sola vez el saldo inicial y la fecha desde la que comienza el seguimiento de cada cuenta nueva. Ese saldo es anterior a los movimientos de ese día y no se permiten movimientos o ajustes anteriores a la fecha. Las cuentas existentes conservan su saldo inicial y su historial anterior sin cambios. Para corregir diferencias, registra un ajuste positivo o negativo con fecha y motivo: afecta al saldo desde esa fecha, pero no cuenta como ingreso o gasto. Los ajustes pueden consultarse y eliminarse desde «Cuentas».
+En el menú «Cuentas», consulta tus saldos y crea cuentas indicando nombre, tipo, saldo inicial y fecha desde la que comienza su seguimiento. Para cuentas pendientes, configura una sola vez el saldo inicial y la fecha. Ese saldo es anterior a los movimientos de ese día y no se permiten movimientos o ajustes anteriores a la fecha. Las cuentas existentes conservan su saldo inicial y su historial anterior sin cambios. Para corregir diferencias, registra un ajuste positivo o negativo con fecha y motivo: afecta al saldo desde esa fecha, pero no cuenta como ingreso o gasto. Los ajustes pueden consultarse y eliminarse desde «Cuentas».
 
 En «Movimientos» puedes combinar filtros de fecha, tipo, categoría, descripción y cuenta; las fechas incluyen ambos extremos. La búsqueda de descripción no distingue mayúsculas ni tildes. Los filtros también se aplican a las transferencias: la cuenta puede ser de origen o destino, y al seleccionar una categoría no aparecen porque no tienen categoría. Usa «Limpiar filtros» para volver a ver todo.
 
@@ -134,7 +138,7 @@ En «Categorías», consulta un mes y escribe el presupuesto junto a cada catego
 
 En «Categorías» puedes crear y renombrar categorías personales, clasificarlas como fijas o variables, y archivar o restaurar las que ya no uses. Los cambios se guardan juntos solo al pulsar «Actualizar categorías»; también puedes descartarlos y recargar. Las nuevas categorías son variables por defecto. Archivar no borra los gastos ni presupuestos anteriores; las categorías archivadas dejan de estar disponibles para nuevos gastos y presupuestos. Al renombrar o reclasificar una categoría, el cambio también aparece en sus registros anteriores.
 
-También puedes crear metas de ahorro con un monto objetivo y una fecha opcional, y registrar aportes para consultar el avance y el historial. Los aportes son solo seguimiento de la meta: **no modifican saldos de cuentas ni registran gastos o transferencias**. Puedes eliminar un aporte si lo registraste por error.
+En «Metas de ahorro» puedes crear metas con monto objetivo, cuenta de tipo ahorro y fecha opcional. Cada aporte transfiere dinero desde otra cuenta hacia la cuenta de ahorro asociada a la meta; no es ingreso ni gasto. Los aportes futuros aparecen en el historial pero solo cuentan para el avance y los saldos desde su fecha. Las metas anteriores necesitan que se les asigne su cuenta de ahorro: al confirmar, las transferencias vinculadas que salían de esa cuenta se invierten y los saldos históricos cambian. Si una transferencia vinculada no utiliza esa cuenta, la asignación se rechaza para que revises el historial. Los aportes antiguos sin cuentas no modifican saldos hasta que asignes su cuenta de origen individualmente; al hacerlo se crea una transferencia en la fecha original. Si ya registraste esa transferencia por separado, se duplicará: revísala antes de asignar las cuentas. Las metas completadas se muestran en un apartado separado y no aceptan nuevos aportes. Si eliminas un aporte o una meta, también se eliminan sus transferencias y se revierten sus efectos en los saldos. Las transferencias vinculadas se administran desde la meta, no desde «Movimientos».
 Accede a estas funciones desde «Metas de ahorro» en la navegación; «Dashboard» vuelve al resumen financiero y «Movimientos» al registro e historial. La consulta de metas es independiente del mes seleccionado.
 
 Las cuentas usan contraseñas derivadas con `scrypt` y sesiones locales con cookies `HttpOnly`. No hay verificación de correo ni recuperación de contraseña. El servidor escucha únicamente en `127.0.0.1`; no lo expongas a internet ni a redes compartidas. El usuario configurado para conectarse a PostgreSQL es una credencial técnica distinta de la cuenta con la que inicias sesión en la aplicación. Respalda regularmente tu base de datos.

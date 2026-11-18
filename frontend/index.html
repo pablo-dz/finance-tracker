@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Mis finanzas</title>
-  <link rel="stylesheet" href="/styles.css?v=18">
-  <script src="/dashboard.js?v=20" type="module"></script>
+  <link rel="stylesheet" href="/styles.css?v=20">
+  <script src="/dashboard.js?v=24" type="module"></script>
 </head>
 <body>
   <header>
@@ -152,6 +152,31 @@
         <p class="chart-description">Saldo inicial más movimientos y ajustes registrados hasta hoy.</p>
         <p id="accounts-status" role="status" aria-live="polite"></p>
         <ul id="accounts" aria-label="Saldos actuales por cuenta"></ul>
+        <form id="account-form">
+          <h3>Crear cuenta</h3>
+          <div class="form-grid">
+            <label>Nombre
+              <input name="name" maxlength="100" required placeholder="Ej. Cuenta de ahorro">
+            </label>
+            <label>Tipo
+              <select name="type" required>
+                <option value="savings">Ahorro</option>
+                <option value="checking">Cuenta corriente</option>
+                <option value="cash">Efectivo</option>
+                <option value="credit">Crédito</option>
+                <option value="investment">Inversión</option>
+              </select>
+            </label>
+            <label>Saldo inicial en CLP
+              <input name="amount" type="number" min="-999999999999.99" max="999999999999.99" step="0.01" required>
+            </label>
+            <label>Fecha de inicio
+              <input name="date" type="date" min="1900-01-01" max="9999-12-31" required>
+            </label>
+          </div>
+          <p id="account-form-message" role="status" aria-live="polite"></p>
+          <button type="submit">Crear cuenta</button>
+        </form>
         <form id="opening-balance-form">
           <h3>Configurar saldo inicial</h3>
           <p>Configúralo una sola vez para cuentas nuevas, antes de registrar movimientos.</p>
@@ -350,11 +375,11 @@
     <section class="panel" id="savings-panel" hidden aria-labelledby="savings-title">
       <p class="eyebrow">PLANIFICACIÓN PERSONAL</p>
       <h1 id="savings-title">Metas de ahorro</h1>
-      <p class="chart-description">Registra aportes para medir el avance. Los aportes no cambian los saldos de tus cuentas.</p>
+      <p class="chart-description">Organiza tus objetivos y registra aportes como transferencias entre tus cuentas.</p>
       <p id="savings-status" role="status" aria-live="polite"></p>
-      <button id="refresh-savings" class="secondary-button" type="button">Actualizar metas</button>
-      <p id="savings-empty" hidden>No tienes metas de ahorro todavía.</p>
-      <ul id="savings-goals" aria-label="Metas de ahorro y sus aportes"></ul>
+      <p class="filter-note">Cada meta tiene una cuenta de ahorro de destino. Los aportes transfieren dinero desde otra cuenta hacia ella.</p>
+      <p id="savings-account-notice" class="filter-note" hidden></p>
+      <div class="savings-forms">
       <form id="savings-goal-form">
         <h2>Crear meta</h2>
         <div class="form-grid">
@@ -363,6 +388,9 @@
           </label>
           <label>Objetivo en CLP
             <input name="targetAmount" type="number" min="1" max="999999999999" step="1" required placeholder="Ej. 500000">
+          </label>
+          <label>Cuenta de ahorro de destino
+            <select name="accountId" required><option value="">Selecciona una cuenta de ahorro</option></select>
           </label>
           <label>Fecha objetivo (opcional)
             <input name="dueDate" type="date" min="1900-01-01" max="9999-12-31">
@@ -377,6 +405,10 @@
           <label>Meta
             <select name="goalId" required><option value="">Selecciona una meta</option></select>
           </label>
+          <label>Cuenta de origen
+            <select name="sourceAccountId" required><option value="">Selecciona una cuenta</option></select>
+          </label>
+          <p id="savings-destination" class="filter-note">Selecciona una meta para ver su cuenta de destino.</p>
           <label>Aporte en CLP
             <input name="amount" type="number" min="1" max="999999999999" step="1" required placeholder="Ej. 25000">
           </label>
@@ -390,6 +422,18 @@
         <p id="savings-contribution-message" role="status" aria-live="polite"></p>
         <button id="save-contribution" type="submit" disabled>Guardar aporte</button>
       </form>
+      </div>
+      <div class="savings-list-header">
+        <h2>Metas en curso</h2>
+        <button id="refresh-savings" class="secondary-button" type="button">Actualizar metas</button>
+      </div>
+      <p id="savings-empty" hidden>No tienes metas en curso.</p>
+      <ul id="savings-goals" class="savings-goals" aria-label="Metas en curso y sus aportes"></ul>
+      <details class="savings-archive">
+        <summary>Metas completadas</summary>
+        <p id="savings-archive-empty" hidden>No hay metas completadas.</p>
+        <ul id="savings-archived" class="savings-goals" aria-label="Metas completadas y sus aportes"></ul>
+      </details>
     </section>
     </div>
   </main>

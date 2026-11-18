@@ -25,9 +25,10 @@ def balance_amount(value):
     return isinstance(value, str) and re.fullmatch(r"-?(?:0|[1-9][0-9]{0,11})(?:\.[0-9]{1,2})?", value) is not None
 
 
-@router.api_route("/api/metas", methods=["GET", "POST"])
-@router.api_route("/api/metas/aportes", methods=["POST", "DELETE"])
+@router.api_route("/api/metas", methods=["GET", "POST", "PUT", "DELETE"])
+@router.api_route("/api/metas/aportes", methods=["POST", "PUT", "DELETE"])
 @router.api_route("/api/reportes", methods=["GET"])
+@router.api_route("/api/cuentas", methods=["POST"])
 @router.api_route("/api/cuentas/saldo-inicial", methods=["PUT"])
 @router.api_route("/api/cuentas/ajustes", methods=["GET", "POST", "DELETE"])
 async def financial(request: Request, store: AuthStore = Depends(get_store),
@@ -46,19 +47,36 @@ async def financial(request: Request, store: AuthStore = Depends(get_store),
         body, error = await read_json_body(request)
         if error:
             return error
-        if path == "/api/metas":
+        if path == "/api/metas" and method == "POST":
             valid = (isinstance(body, dict) and valid_text(body.get("name"), True)
                      and positive_integer(body.get("targetAmount"))
+                     and valid_option_id(body.get("accountId"))
                      and (body.get("dueDate") is None or valid_date(body.get("dueDate"))))
-            message = "Ingresa un nombre, un objetivo positivo en pesos enteros y una fecha válida."
-        elif path == "/api/metas/aportes" and method == "POST":
+            message = "Ingresa un nombre, objetivo, cuenta de ahorro y fecha válidos."
+        elif path == "/api/metas" and method == "PUT":
+            valid = (isinstance(body, dict) and valid_option_id(body.get("id"))
+                     and valid_option_id(body.get("accountId")))
+            message = "Selecciona una meta y cuenta de ahorro válidas."
+        elif path == "/api/metas":
+            valid = isinstance(body, dict) and valid_option_id(body.get("id"))
+            message = "El identificador de la meta no es válido."
+        elif path == "/api/metas/aportes" and method in ("POST", "PUT"):
             valid = (isinstance(body, dict) and valid_option_id(body.get("goalId"))
                      and positive_integer(body.get("amount")) and valid_date(body.get("date"))
-                     and ("note" not in body or valid_text(body["note"], False)))
-            message = "Revisa la meta, el aporte positivo en pesos enteros, la fecha y la descripción."
+                     and ("note" not in body or valid_text(body["note"], False))) if method == "POST" else (
+                         isinstance(body, dict) and valid_id(body.get("id")))
+            valid = (valid and valid_option_id(body.get("sourceAccountId"))
+                     and valid_option_id(body.get("destinationAccountId"))
+                     and body["sourceAccountId"] != body["destinationAccountId"])
+            message = "Revisa el aporte y selecciona dos cuentas distintas y válidas."
         elif path == "/api/metas/aportes":
             valid = isinstance(body, dict) and valid_id(body.get("id"))
             message = "El identificador del aporte no es válido."
+        elif path == "/api/cuentas":
+            valid = (isinstance(body, dict) and valid_text(body.get("name"), True)
+                     and body.get("type") in ("checking", "savings", "credit", "cash", "investment")
+                     and balance_amount(body.get("amount")) and valid_date(body.get("date")))
+            message = "Ingresa un nombre, tipo, saldo inicial y fecha válidos."
         elif path == "/api/cuentas/saldo-inicial":
             valid = (isinstance(body, dict) and valid_option_id(body.get("accountId"))
                      and balance_amount(body.get("amount")) and valid_date(body.get("date")))
@@ -84,6 +102,10 @@ async def financial(request: Request, store: AuthStore = Depends(get_store),
     if path == "/api/reportes":
         report = await run_in_threadpool(financial_store.report, member, month[0], months[0])
         return json_response({"month": month[0], "months": int(months[0]), **report})
+    if path == "/api/cuentas":
+        if not await run_in_threadpool(financial_store.create_account, member, body):
+            return json_response({"error": "No se pudo crear la cuenta. Revisa el nombre y tu perfil personal."}, 409)
+        return json_response({"message": "Cuenta creada correctamente."}, 201)
     if path == "/api/cuentas/ajustes":
         if method == "GET":
             return json_response({"adjustments": await run_in_threadpool(financial_store.adjustments, member)})
@@ -95,13 +117,25 @@ async def financial(request: Request, store: AuthStore = Depends(get_store),
             return json_response({"error": "El ajuste no existe o ya no está disponible."}, 404)
         return json_response({"message": "Ajuste eliminado correctamente."})
     if path == "/api/metas":
+        if method == "PUT":
+            if not await run_in_threadpool(financial_store.assign_goal_account, member, body):
+                return json_response({"error": "La cuenta no está disponible, la meta ya tiene cuenta o algún aporte no utiliza esa cuenta. Revisa sus transferencias antes de continuar."}, 409)
+            return json_response({"message": "Cuenta asignada y aportes invertidos corregidos."})
+        if method == "DELETE":
+            if not await run_in_threadpool(financial_store.delete_goal, member, body["id"]):
+                return json_response({"error": "La meta no existe o ya no está disponible."}, 404)
+            return json_response({"message": "Meta y aportes eliminados correctamente."})
         if not await run_in_threadpool(financial_store.create_goal, member, body):
             return json_response({"error": "No se pudo crear la meta en el hogar personal. Vuelve a consultar."}, 409)
         return json_response({"message": "Meta de ahorro creada correctamente."}, 201)
     if path == "/api/metas/aportes" and method == "POST":
         if not await run_in_threadpool(financial_store.create_contribution, member, body):
-            return json_response({"error": "La meta no existe o no pertenece al hogar personal."}, 404)
+            return json_response({"error": "La meta ya no está disponible o las cuentas no admiten esta fecha."}, 409)
         return json_response({"message": "Aporte registrado correctamente."}, 201)
+    if path == "/api/metas/aportes" and method == "PUT":
+        if not await run_in_threadpool(financial_store.assign_contribution_accounts, member, body):
+            return json_response({"error": "El aporte ya tiene cuentas o las cuentas no admiten esta fecha."}, 409)
+        return json_response({"message": "Cuentas asignadas correctamente."})
     if path == "/api/metas/aportes":
         if not await run_in_threadpool(financial_store.delete_contribution, member, body["id"]):
             return json_response({"error": "El aporte no existe o ya no está disponible."}, 404)

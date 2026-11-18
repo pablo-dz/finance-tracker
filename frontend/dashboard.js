@@ -1,10 +1,11 @@
 import {
   monthInput, movementStatus, expenseForm,
   todayText, state,
-} from "./modules/common.js?v=20";
-import { initializeAuthentication } from "./modules/auth.js?v=20";
-import { loadExpenses } from "./modules/expenses.js?v=20";
-import { prepareBudgetMonth } from "./modules/planning.js?v=20";
+} from "./modules/common.js?v=24";
+import { initializeAuthentication } from "./modules/auth.js?v=24";
+import { loadExpenses } from "./modules/expenses.js?v=24";
+import { prepareBudgetMonth } from "./modules/planning.js?v=24";
+import { loadSavingsGoals } from "./modules/savings.js?v=24";
 
 const form = document.querySelector("#month-form");
 const views = [
@@ -23,6 +24,7 @@ function showView(selected) {
   }
   form.hidden = selected.id !== "nav-dashboard" && selected.id !== "nav-categories";
   document.querySelector("#message").hidden = form.hidden;
+  if (selected.id === "nav-savings") loadSavingsGoals();
 }
 
 for (const [button] of views) button.addEventListener("click", () => showView(button));

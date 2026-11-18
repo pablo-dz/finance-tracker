@@ -114,6 +114,8 @@ class MovementValidationTest(unittest.TestCase):
             ("POST", "/api/metas", {"name": "Viaje", "targetAmount": "100", "dueDate": "2023-02-29"}),
             ("POST", "/api/metas/aportes", {"goalId": 1, "amount": "1.5", "date": "2020-01-01"}),
             ("DELETE", "/api/metas/aportes", {"id": 1}),
+            ("POST", "/api/cuentas", {"name": " ", "type": "savings", "amount": "0", "date": "2020-01-01"}),
+            ("POST", "/api/cuentas", {"name": "Ahorro", "type": "otro", "amount": "0", "date": "2020-01-01"}),
             ("PUT", "/api/cuentas/saldo-inicial", {"accountId": 1, "amount": "10", "date": "2023-02-29"}),
             ("POST", "/api/cuentas/ajustes", {"accountId": 1, "amount": "0", "date": "2020-01-01", "reason": "Corrección"}),
             ("POST", "/api/cuentas/ajustes", {"accountId": 1, "amount": "1", "date": "2020-01-01", "reason": " "}),
@@ -138,7 +140,7 @@ class MovementValidationTest(unittest.TestCase):
         self.assertEqual(self.client.post("/api/metas", headers=self.headers, content="{}").status_code, 403)
 
     def test_unsupported_methods_are_rejected(self):
-        for method, path in (("POST", "/api/opciones"), ("PUT", "/api/metas"),
+        for method, path in (("POST", "/api/opciones"), ("PATCH", "/api/metas"),
                              ("DELETE", "/api/reportes"), ("GET", "/api/metas/aportes")):
             with self.subTest(method=method, path=path):
                 self.assertEqual(self.client.request(method, path).status_code, 405)
@@ -155,9 +157,9 @@ class DashboardTest(unittest.TestCase):
                 self.assertEqual(response.status_code, 200)
                 self.assertTrue(response.headers["content-type"].startswith(content_type))
                 self.assertEqual(response.headers["cache-control"], "no-cache")
-            self.assertEqual(client.get("/styles.css?v=18").status_code, 200)
-            self.assertEqual(client.get("/dashboard.js?v=20").status_code, 200)
-            self.assertEqual(client.get("/modules/planning.js?v=20").status_code, 200)
+            self.assertEqual(client.get("/styles.css?v=20").status_code, 200)
+            self.assertEqual(client.get("/dashboard.js?v=24").status_code, 200)
+            self.assertEqual(client.get("/modules/planning.js?v=24").status_code, 200)
             self.assertEqual(client.get("/modules/reports.js").status_code, 404)
             self.assertEqual(client.get("/server.js").status_code, 404)
             self.assertEqual(client.get("/modules/unknown.js").status_code, 404)

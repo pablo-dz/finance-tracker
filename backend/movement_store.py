@@ -21,7 +21,7 @@ class MovementStore:
         member_id = member["member_id"]
         with self.connection_factory() as conn:
             accounts = conn.execute(
-                """SELECT a.account_id AS id, a.name, a.opening_balance::text AS "openingBalance",
+                """SELECT a.account_id AS id, a.name, a.type, a.opening_balance::text AS "openingBalance",
                    a.opening_configured AS "openingConfigured", a.opening_date::text AS "openingDate",
                    ((CASE WHEN a.opening_date IS NULL OR a.opening_date <= CURRENT_DATE
                           THEN a.opening_balance ELSE 0 END) + COALESCE(SUM(CASE t.type WHEN 'income' THEN t.amount
@@ -119,7 +119,10 @@ class MovementStore:
                        'type', 'transfer', 'description', COALESCE(NULLIF(BTRIM(tr.note), ''), 'Transferencia'),
                        'amount', tr.amount::text, 'note', tr.note, 'sourceAccountId', tr.source_account_id,
                        'destinationAccountId', tr.destination_account_id, 'category', NULL,
-                       'account', source.name, 'destinationAccount', destination.name
+                       'account', source.name, 'destinationAccount', destination.name,
+                       'savingsContribution', EXISTS (
+                         SELECT 1 FROM finance.savings_contribution sc WHERE sc.transfer_id = tr.transfer_id
+                       )
                      ) AS movement, tr.tx_date AS sort_date, tr.transfer_id AS sort_id, 'transfer'::text AS type, tr.amount
                      FROM finance.account_transfer tr
                      JOIN finance.account source ON source.account_id = tr.source_account_id AND source.household_id = tr.household_id
@@ -206,6 +209,7 @@ class MovementStore:
                           AND m.household_id = h.household_id AND m.member_id = %(member)s AND m.is_active
                           AND {source} AND {destination}
                           AND tr.transfer_id = %(id)s::bigint AND tr.household_id = h.household_id AND tr.member_id = m.member_id
+                          AND NOT EXISTS (SELECT 1 FROM finance.savings_contribution sc WHERE sc.transfer_id = tr.transfer_id)
                         RETURNING tr.transfer_id"""
         with self.connection_factory() as conn:
             return conn.execute(query, params).fetchone() is not None
@@ -215,7 +219,8 @@ class MovementStore:
             ("finance.account_transfer", "tr", "transfer_id") if kind == "transfer"
             else ("finance.transactions", "t", "transaction_id")
         )
-        type_filter = "" if kind == "transfer" else "AND t.type = %(kind)s"
+        type_filter = ("AND NOT EXISTS (SELECT 1 FROM finance.savings_contribution sc WHERE sc.transfer_id = tr.transfer_id)"
+                       if kind == "transfer" else "AND t.type = %(kind)s")
         query = f"""DELETE FROM {table} {alias}
                     USING finance.household h, finance.member m
                     WHERE h.household_id = %(household)s AND h.base_currency = 'CLP'

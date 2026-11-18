@@ -72,8 +72,8 @@ test("los módulos coordinan la sesión, los movimientos y la planificación", a
     categoryLoadGate: null,
   };
   const requests = [];
-  const account = { id: 1, name: "Cuenta principal", openingBalance: "0.00", openingConfigured: false, balance: "0.00" };
-  const secondAccount = { id: 6, name: "Ahorro", openingBalance: "0.00", openingConfigured: true, balance: "0.00" };
+  const account = { id: 1, name: "Cuenta principal", type: "checking", openingBalance: "0.00", openingConfigured: false, balance: "0.00" };
+  const secondAccount = { id: 6, name: "Ahorro", type: "savings", openingBalance: "0.00", openingConfigured: true, balance: "0.00" };
   const category = { id: 2, name: "Groceries" };
   const incomeCategory = { id: 3, name: "Salary" };
   setGlobal("fetch", async (path, options = {}) => {
@@ -93,6 +93,9 @@ test("los módulos coordinan la sesión, los movimientos y la planificación", a
     } else if (url.pathname === "/api/opciones") {
       result = { accounts: [account, secondAccount], categories: data.categories.filter((item) => item.active),
                  incomeCategories: [incomeCategory] };
+    } else if (url.pathname === "/api/cuentas") {
+      data.createdAccount = body;
+      result = { message: "Cuenta creada correctamente." };
     } else if (url.pathname === "/api/dashboard") {
       if (data.failDashboard) return { ok: false, json: async () => ({ error: "Dashboard no disponible." }) };
       const month = url.searchParams.get("mes");
@@ -234,15 +237,35 @@ test("los módulos coordinan la sesión, los movimientos y la planificación", a
       })) };
     } else if (url.pathname === "/api/metas" && method === "POST") {
       data.goals.push({ id: 4, name: body.name, targetAmount: `${body.targetAmount}.00`,
-                        dueDate: body.dueDate, saved: "0", contributions: [] });
+                        accountId: body.accountId, accountName: "Ahorro", dueDate: body.dueDate, saved: "0", contributions: [] });
       result = { message: "Guardado." };
+    } else if (url.pathname === "/api/metas" && method === "PUT") {
+      const goal = data.goals.find((item) => item.id === body.id);
+      goal.accountId = body.accountId;
+      goal.accountName = secondAccount.name;
+      for (const contribution of goal.contributions) {
+        if (contribution.sourceAccountId === body.accountId) {
+          [contribution.sourceAccount, contribution.destinationAccount] = [contribution.destinationAccount, contribution.sourceAccount];
+          [contribution.sourceAccountId, contribution.destinationAccountId] = [contribution.destinationAccountId, contribution.sourceAccountId];
+        }
+      }
+      result = { message: "Guardado." };
+    } else if (url.pathname === "/api/metas" && method === "DELETE") {
+      data.goals = data.goals.filter((goal) => goal.id !== body.id);
+      result = { message: "Eliminado." };
     } else if (url.pathname === "/api/metas") {
       if (data.failGoals) return { ok: false, json: async () => ({ error: "Metas no disponibles." }) };
       result = { goals: data.goals };
     } else if (url.pathname === "/api/metas/aportes" && method === "POST") {
       data.goals[0].saved = `${body.amount}.00`;
       data.goals[0].contributions.push({ id: "5", date: body.date, amount: `${body.amount}.00`,
-                                        note: body.note, editable: true });
+                                        note: body.note, editable: true, needsAccounts: false,
+                                        sourceAccount: account.name, destinationAccount: secondAccount.name });
+      result = { message: "Guardado." };
+    } else if (url.pathname === "/api/metas/aportes" && method === "PUT") {
+      Object.assign(data.goals[0].contributions.find((item) => item.id === body.id), {
+        needsAccounts: false, sourceAccount: account.name, destinationAccount: secondAccount.name,
+      });
       result = { message: "Guardado." };
     } else if (url.pathname === "/api/metas/aportes" && method === "DELETE") {
       data.goals[0].saved = "0";
@@ -655,6 +678,12 @@ test("los módulos coordinan la sesión, los movimientos y la planificación", a
   assert.equal(element("#accounts-panel").hidden, false);
   assert.equal(element("#month-form").hidden, true);
   assert.match(element("#accounts").textContent, /Cuenta principal/);
+  field("#account-form", "name", "Fondo");
+  field("#account-form", "amount", "200");
+  field("#account-form", "date", "2020-06-01");
+  submit("#account-form");
+  await waitFor(() => element("#account-form-message").textContent === "Cuenta creada correctamente.");
+  assert.deepEqual(data.createdAccount, { name: "Fondo", type: "savings", amount: "200", date: "2020-06-01" });
   data.failExpenses = true;
   submit("#month-form");
   await waitFor(() => element("#message").textContent === "Gastos no disponibles.");
@@ -909,6 +938,7 @@ test("los módulos coordinan la sesión, los movimientos y la planificación", a
   assert.equal(element("#nav-dashboard").hasAttribute("aria-current"), false);
   field("#savings-goal-form", "name", "Viaje");
   field("#savings-goal-form", "targetAmount", "10000");
+  field("#savings-goal-form", "accountId", "6");
   submit("#savings-goal-form");
   await waitFor(() => element("#savings-contribution-form [name=goalId]").options.length === 2);
   data.failGoals = true;
@@ -919,12 +949,45 @@ test("los módulos coordinan la sesión, los movimientos y la planificación", a
   element("#refresh-savings").click();
   await waitFor(() => element("#savings-contribution-form [name=goalId]").options.length === 2);
   field("#savings-contribution-form", "goalId", "4");
+  element("#savings-contribution-form [name=goalId]").dispatchEvent(new window.Event("change", { bubbles: true }));
+  assert.match(element("#savings-destination").textContent, /Ahorro/);
+  assert.ok(![...element("#savings-contribution-form [name=sourceAccountId]").options].some((option) => option.value === "6"));
   field("#savings-contribution-form", "amount", "500");
+  field("#savings-contribution-form", "sourceAccountId", "1");
   submit("#savings-contribution-form");
   await waitFor(() => element("#savings-goals").textContent.includes("Ahorrado: $500"));
+  assert.ok(requests.some((request) => request.path === "/api/metas/aportes" && request.method === "POST"
+    && request.body.sourceAccountId === 1 && request.body.destinationAccountId === 6));
   assert.match(element("#savings-goals").textContent, /5 %/);
   element('[aria-label="Eliminar aporte de $500 a Viaje"]').click();
   await waitFor(() => element("#savings-goals").textContent.includes("Ahorrado: $0"));
+  data.goals[0].accountId = null;
+  data.goals[0].accountName = null;
+  data.goals[0].contributions = [{ id: "7", date: "2020-06-01", amount: "20.00", note: null,
+    editable: true, needsAccounts: false, sourceAccountId: 6, destinationAccountId: 1,
+    sourceAccount: "Ahorro", destinationAccount: "Cuenta principal" }];
+  element("#refresh-savings").click();
+  await waitFor(() => element("#savings-goals .goal-account-form"));
+  assert.equal(element("#savings-contribution-form [name=goalId]").options.length, 1);
+  const goalAssignment = element("#savings-goals .goal-account-form");
+  goalAssignment.elements.accountId.value = "6";
+  goalAssignment.dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
+  await waitFor(() => element("#savings-goals").textContent.includes("Cuenta principal → Ahorro"));
+  assert.ok(requests.some((request) => request.path === "/api/metas" && request.method === "PUT"
+    && request.body.accountId === 6));
+  data.goals[0].saved = "10000.00";
+  data.goals[0].contributions = [{ id: "6", date: "2020-06-01", amount: "10000.00", note: null,
+    editable: true, needsAccounts: true }];
+  element("#refresh-savings").click();
+  await waitFor(() => element("#savings-archived").textContent.includes("Cuentas pendientes de asignación"));
+  assert.equal(element("#savings-contribution-form [name=goalId]").options.length, 1);
+  const assignment = element(".goal-account-form");
+  assignment.elements.sourceAccountId.value = "1";
+  assignment.dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
+  await waitFor(() => element("#savings-archived").textContent.includes("Cuenta principal → Ahorro"));
+  element('[aria-label="Eliminar meta Viaje"]').click();
+  await waitFor(() => !element("#savings-archived").textContent.includes("Viaje"));
+  assert.ok(requests.some((request) => request.path === "/api/metas" && request.method === "DELETE" && request.body.id === 4));
   data.failExpenses = false;
   element("#nav-dashboard").click();
   assert.equal(element("#dashboard-view").hidden, false);

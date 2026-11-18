@@ -63,18 +63,31 @@ li { border-top: 1px solid #edf1ed; padding: 15px 0; }
 .edit-button:hover { color: white; }
 .delete-button { color: #a53d3d; border-color: #dfb4b4; background: white; padding: 5px 8px; font-size: 13px; }
 .delete-button:hover { color: white; background: #a53d3d; border-color: #a53d3d; }
-#opening-balance-form { border-top: 1px solid #edf1ed; padding-top: 10px; }
+#opening-balance-form, #account-form { border-top: 1px solid #edf1ed; padding-top: 10px; }
 .account-item { display: flex; justify-content: space-between; gap: 16px; }
 .account-item strong { white-space: nowrap; }
-.goal-item > strong { font-size: 16px; }
+.savings-forms { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin: 24px 0; align-items: start; }
+.savings-forms form { background: #f7faf7; border: 1px solid #e1e9e1; border-radius: 10px; padding: 18px; min-width: 0; }
+.savings-forms h2 { margin: 0 0 16px; font-size: 17px; }
+.savings-list-header { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 24px 0 12px; }
+.savings-list-header h2 { margin: 0; }
+.savings-goals { display: grid; gap: 12px; }
+.savings-goals > li { border: 1px solid #e1e9e1; border-radius: 10px; padding: 16px; min-width: 0; }
+.goal-header { display: flex; justify-content: space-between; align-items: start; gap: 12px; margin-bottom: 12px; }
+.goal-header strong { font-size: 16px; overflow-wrap: anywhere; }
 .goal-summary { display: flex; justify-content: space-between; gap: 16px; color: #64766a; font-size: 13px; }
 .goal-summary span:last-child { text-align: right; }
 .goal-progress { display: block; width: 100%; height: 12px; margin: 10px 0; accent-color: #368b5f; }
 .goal-due-date { color: #718377; font-size: 13px; }
-.goal-contributions { margin: 8px 0 0 16px; }
-.goal-contributions li { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; }
-.goal-contributions li > span:first-child { min-width: 0; overflow-wrap: anywhere; }
-#savings-goal-form, #savings-contribution-form { border-top: 1px solid #edf1ed; padding-top: 10px; }
+.goal-contributions { margin-top: 12px; }
+.goal-contributions li { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; font-size: 13px; }
+.goal-contributions li > span:first-child { flex: 1; min-width: 150px; overflow-wrap: anywhere; }
+.goal-account-form { width: 100%; display: flex; flex-wrap: wrap; gap: 8px; align-items: end; }
+.goal-account-form label { flex: 1 1 150px; margin: 0; }
+.goal-account-form select { display: block; width: 100%; margin-top: 4px; }
+.savings-archive { border-top: 1px solid #e1e9e1; margin-top: 24px; padding-top: 20px; }
+.savings-archive summary { cursor: pointer; color: #1f6041; font-weight: 700; }
+.savings-archive .savings-goals { margin-top: 16px; }
 #savings-title + .chart-description { margin-top: 8px; }
 .managed-category { display: grid; grid-template-columns: 82px minmax(0, 1fr) 120px minmax(130px, 170px) auto; gap: 10px; align-items: center; }
 .category-state { color: #368b5f; font-size: 12px; font-weight: 600; }
@@ -209,6 +222,8 @@ li { border-top: 1px solid #edf1ed; padding: 15px 0; }
   .movement-actions { flex-direction: column; align-items: end; gap: 7px; }
   .goal-summary { flex-direction: column; gap: 4px; }
   .goal-summary span:last-child { text-align: left; }
+  .savings-forms { grid-template-columns: 1fr; }
+  .savings-list-header { flex-wrap: wrap; }
   .movement { flex-wrap: wrap; }
   .dashboard-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .category-explorer { grid-template-columns: 1fr; }
