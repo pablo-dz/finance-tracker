@@ -24,7 +24,7 @@
 
 Finance Tracker es una aplicación web para llevar el control de tus ingresos, gastos y ahorro en pesos chilenos (CLP). Junta tus movimientos y cuentas en un dashboard para que puedas ver fácilmente cómo evoluciona tu plata.
 
-Es una app que creé con ayuda de Copilot, una IA de programación.
+Desarrollé Finance Tracker con la ayuda de GitHub Copilot, que me acompañó durante la programación y documentación del proyecto.
 
 ## ✨ Funcionalidades principales
 
