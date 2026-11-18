@@ -3,6 +3,25 @@ import { readFile } from "node:fs/promises";
 import { test } from "node:test";
 import { JSDOM } from "jsdom";
 
+test("los módulos del frontend comparten una versión que evita archivos cacheados incompatibles", async () => {
+  const html = await readFile(new URL("../../frontend/index.html", import.meta.url), "utf8");
+  const entry = html.match(/<script src="(\/dashboard\.js\?v=([^"]+))" type="module">/);
+  assert.ok(entry, "El módulo principal debe tener una versión.");
+  const pending = [new URL(`../../frontend${entry[1]}`, import.meta.url)];
+  const visited = new Set();
+  while (pending.length) {
+    const url = pending.pop();
+    if (visited.has(url.href)) continue;
+    visited.add(url.href);
+    const source = await readFile(url, "utf8");
+    for (const match of source.matchAll(/from\s+["'](\.[^"']+\.js(?:\?[^"']*)?)["']/g)) {
+      const dependency = new URL(match[1], url);
+      assert.equal(dependency.searchParams.get("v"), entry[2], `${url.pathname}: ${match[1]}`);
+      pending.push(dependency);
+    }
+  }
+});
+
 test("los módulos coordinan la sesión, los movimientos y la planificación", async (t) => {
   const html = await readFile(new URL("../../frontend/index.html", import.meta.url), "utf8");
   const dom = new JSDOM(html, { url: "http://127.0.0.1:3000/" });
@@ -17,6 +36,8 @@ test("los módulos coordinan la sesión, los movimientos y la planificación", a
   }
   setGlobal("confirm", () => true);
   window.HTMLElement.prototype.scrollIntoView = () => {};
+  let alertMessage;
+  window.alert = (message) => { alertMessage = message; };
   t.after(() => {
     dom.window.close();
     for (const [name, descriptor] of originalGlobals) {
@@ -30,20 +51,36 @@ test("los módulos coordinan la sesión, los movimientos y la planificación", a
     expense: null,
     income: null,
     transfer: null,
+    extraMovements: [],
     budget: null,
+    otherBudgets: {},
     goals: [],
-    categories: [{ id: 2, name: "Groceries", active: true }],
+    categories: [{ id: 2, name: "Groceries", active: true, fixed: false }],
+    adjustments: [],
+    dashboardBudgets: null,
+    dashboardCategories: null,
+    dashboardMonthly: null,
+    dashboardGoals: null,
+    dashboardToday: null,
+    failDashboard: false,
+    failExpenses: false,
+    failHistory: false,
+    failGoals: false,
+    failCategories: false,
+    failCategorySave: false,
+    categorySaveGate: null,
+    categoryLoadGate: null,
   };
   const requests = [];
-  const account = { id: 1, name: "Cuenta principal", openingBalance: "0.00", balance: "0.00" };
-  const secondAccount = { id: 6, name: "Ahorro", openingBalance: "0.00", balance: "0.00" };
+  const account = { id: 1, name: "Cuenta principal", type: "checking", openingBalance: "0.00", openingConfigured: false, balance: "0.00" };
+  const secondAccount = { id: 6, name: "Ahorro", type: "savings", openingBalance: "0.00", openingConfigured: true, balance: "0.00" };
   const category = { id: 2, name: "Groceries" };
   const incomeCategory = { id: 3, name: "Salary" };
   setGlobal("fetch", async (path, options = {}) => {
     const url = new URL(path, "http://127.0.0.1:3000");
     const method = options.method ?? "GET";
     const body = options.body ? JSON.parse(options.body) : null;
-    requests.push({ path: url.pathname, method, body });
+    requests.push({ path: url.pathname, method, body, month: url.searchParams.get("mes") });
     let result;
     if (url.pathname === "/api/auth/session") {
       result = { user: data.user };
@@ -56,16 +93,77 @@ test("los módulos coordinan la sesión, los movimientos y la planificación", a
     } else if (url.pathname === "/api/opciones") {
       result = { accounts: [account, secondAccount], categories: data.categories.filter((item) => item.active),
                  incomeCategories: [incomeCategory] };
+    } else if (url.pathname === "/api/cuentas") {
+      data.createdAccount = body;
+      result = { message: "Cuenta creada correctamente." };
+    } else if (url.pathname === "/api/dashboard") {
+      if (data.failDashboard) return { ok: false, json: async () => ({ error: "Dashboard no disponible." }) };
+      const month = url.searchParams.get("mes");
+      const expense = Number(data.expense?.amount ?? 0);
+      const income = Number(data.income?.amount ?? 0);
+      const budget = data.budget ? Number(data.budget.amount) : null;
+      const current = { month, income: String(income), expenses: String(expense),
+                        saving: String(income - expense),
+                        savingRate: income ? String((income - expense) * 100 / income) : null };
+      result = {
+        month, today: data.dashboardToday ?? `${month}-15`, current,
+        previous: { income: "0", expenses: "0", saving: "0", savingRate: null },
+        monthly: data.dashboardMonthly ?? [current],
+        categories: data.dashboardCategories ?? (expense ? [{ month, id: 2, name: "Groceries",
+                                 fixed: data.categories[0].fixed, amount: String(expense) }] : []),
+        budgets: data.dashboardBudgets ?? [{ categoryId: 2, category: "Groceries", isActive: true,
+                    budget: budget === null ? null : String(budget), spent: String(expense),
+                    difference: budget === null ? null : String(Math.abs(budget - expense)),
+                    exceeded: budget !== null && expense > budget }],
+        daily: expense ? [{ day: 1, budgeted: String(budget === null ? 0 : expense),
+                            unbudgeted: String(budget === null ? expense : 0) }] : [],
+        goals: data.dashboardGoals ?? data.goals.map((goal) => ({
+          id: goal.id, name: goal.name, saved: goal.saved, target: goal.targetAmount, recent: "0",
+          estimate: { status: "insufficient", date: null },
+        })),
+        balances: [{ month, balance: account.openingBalance, accounts: [
+          { id: account.id, name: account.name, balance: account.openingBalance },
+          { id: secondAccount.id, name: secondAccount.name, balance: "45.50" },
+        ] }],
+        topExpenses: expense ? [{ name: data.expense.merchant, date: `${month}-01`, amount: String(expense) }] : [],
+        merchants: [],
+      };
+    } else if (url.pathname === "/api/dashboard/categorias") {
+      if (method === "PATCH") {
+        data.categories.find((item) => item.id === body.id).fixed = body.fixed;
+        result = { message: "Guardado." };
+      } else {
+        if (data.categoryLoadGate) await data.categoryLoadGate;
+        if (data.failCategories) return { ok: false, json: async () => ({ error: "Categorías no disponibles." }) };
+        result = { categories: data.categories };
+      }
     } else if (url.pathname === "/api/cuentas/saldo-inicial") {
       account.openingBalance = body.amount;
-      result = { message: "Guardado." };
+      account.openingConfigured = true;
+      account.openingDate = body.date;
+      result = { message: "Saldo inicial configurado correctamente." };
+    } else if (url.pathname === "/api/cuentas/ajustes") {
+      if (method === "POST") {
+        data.adjustments.push({ ...body, account: "Cuenta principal", id: "1" });
+        result = { message: "Ajuste registrado correctamente." };
+      } else if (method === "DELETE") {
+        data.adjustments = data.adjustments.filter((item) => item.id !== body.id);
+        result = { message: "Ajuste eliminado correctamente." };
+      } else {
+        result = { adjustments: data.adjustments };
+      }
     } else if (url.pathname === "/api/gastos" && method !== "GET") {
+      if (method === "DELETE") {
+        data.expense = null;
+        return { ok: true, json: async () => ({ message: "Eliminado." }) };
+      }
       if (body.merchant === "Rechazado") {
         return { ok: false, json: async () => ({ error: "No se pudo guardar el gasto." }) };
       }
       data.expense = { ...body, id: "1", description: body.merchant, category: category.name, editable: true };
       result = { message: "Guardado." };
     } else if (url.pathname === "/api/gastos") {
+      if (data.failExpenses) return { ok: false, json: async () => ({ error: "Gastos no disponibles." }) };
       const expense = data.expense;
       result = {
         total: expense ? `${expense.amount}.00` : "0",
@@ -79,21 +177,47 @@ test("los módulos coordinan la sesión, los movimientos y la planificación", a
       data.transfer = body;
       result = { message: "Guardado." };
     } else if (url.pathname === "/api/movimientos") {
+      if (url.searchParams.get("todos") === "1" && data.failHistory) {
+        return { ok: false, json: async () => ({ error: "Historial no disponible." }) };
+      }
       result = {
         incomeTotal: data.income ? `${data.income.amount}.00` : "0",
-        movements: [...(data.income ? [{
+        movements: [...(data.expense ? [{
+          ...data.expense, id: "transaction-1", type: "expense", amount: `${data.expense.amount}.00`,
+          account: account.name, editable: true,
+        }] : []), ...(data.income ? [{
           ...data.income, id: "transaction-2", type: "income", description: data.income.merchant,
-          amount: `${data.income.amount}.00`, account: account.name, category: incomeCategory.name,
+          amount: `${data.income.amount}.00`, account: account.name, category: incomeCategory.name, editable: true,
         }] : []), ...(data.transfer ? [{
           ...data.transfer, id: "transfer-3", type: "transfer", description: data.transfer.note,
           amount: data.transfer.amount, account: account.name, destinationAccount: secondAccount.name,
-        }] : [])],
+        }] : []), ...(url.searchParams.get("todos") === "1" ? data.extraMovements : [])]
+          .sort((a, b) => b.date.localeCompare(a.date)),
       };
+    } else if (url.pathname === "/api/categorias/lote" && method === "POST") {
+      if (data.categorySaveGate) await data.categorySaveGate;
+      if (data.failCategorySave === "network") throw new Error("Conexión interrumpida");
+      if (data.failCategorySave) return { ok: false, json: async () => ({ error: "No se pudo guardar." }) };
+      for (const change of body.changes) {
+        if (change.id) Object.assign(data.categories.find((item) => item.id === change.id), {
+          name: change.name, active: change.active, fixed: change.fixed,
+        });
+        else data.categories.push({ id: 7, name: change.name, active: change.active, fixed: change.fixed });
+        if (change.budget) {
+          const id = change.id ?? 7;
+          if (id === 2) data.budget = change.budget.amount === null ? null : { amount: change.budget.amount };
+          else data.otherBudgets[id] = change.budget.amount;
+        }
+      }
+      result = { message: "Categorías actualizadas correctamente.", categories: data.categories };
     } else if (url.pathname === "/api/categorias" && method === "POST") {
-      data.categories.push({ id: 7, name: body.name, active: true });
+      data.categories.push({ id: 7, name: body.name, active: true, fixed: false });
       result = { message: "Categoría creada." };
     } else if (url.pathname === "/api/categorias" && method === "PATCH") {
       data.categories.find((item) => item.id === body.id).active = body.active;
+      result = { message: "Categoría actualizada." };
+    } else if (url.pathname === "/api/categorias" && method === "PUT") {
+      data.categories.find((item) => item.id === body.id).name = body.name;
       result = { message: "Categoría actualizada." };
     } else if (url.pathname === "/api/categorias") {
       result = { categories: data.categories };
@@ -104,30 +228,49 @@ test("los módulos coordinan la sesión, los movimientos y la planificación", a
       data.budget = body;
       result = { message: "Guardado." };
     } else if (url.pathname === "/api/presupuestos") {
-      result = { categories: [{
-        categoryId: category.id, category: category.name, isActive: true,
-        budget: data.budget ? `${data.budget.amount}.00` : null,
+      result = { categories: data.categories.map((item) => ({
+        categoryId: item.id, category: item.name, isActive: item.active,
+        budget: item.id === 2 ? (data.budget ? (data.budget.amount.includes(".") ? data.budget.amount : `${data.budget.amount}.00`) : null)
+          : (data.otherBudgets[item.id] == null ? null : `${data.otherBudgets[item.id]}.00`),
         spent: data.expense ? `${data.expense.amount}.00` : "0",
         difference: "500.00", exceeded: false,
-      }] };
+      })) };
     } else if (url.pathname === "/api/metas" && method === "POST") {
       data.goals.push({ id: 4, name: body.name, targetAmount: `${body.targetAmount}.00`,
-                        dueDate: body.dueDate, saved: "0", contributions: [] });
+                        accountId: body.accountId, accountName: "Ahorro", dueDate: body.dueDate, saved: "0", contributions: [] });
       result = { message: "Guardado." };
+    } else if (url.pathname === "/api/metas" && method === "PUT") {
+      const goal = data.goals.find((item) => item.id === body.id);
+      goal.accountId = body.accountId;
+      goal.accountName = secondAccount.name;
+      for (const contribution of goal.contributions) {
+        if (contribution.sourceAccountId === body.accountId) {
+          [contribution.sourceAccount, contribution.destinationAccount] = [contribution.destinationAccount, contribution.sourceAccount];
+          [contribution.sourceAccountId, contribution.destinationAccountId] = [contribution.destinationAccountId, contribution.sourceAccountId];
+        }
+      }
+      result = { message: "Guardado." };
+    } else if (url.pathname === "/api/metas" && method === "DELETE") {
+      data.goals = data.goals.filter((goal) => goal.id !== body.id);
+      result = { message: "Eliminado." };
     } else if (url.pathname === "/api/metas") {
+      if (data.failGoals) return { ok: false, json: async () => ({ error: "Metas no disponibles." }) };
       result = { goals: data.goals };
     } else if (url.pathname === "/api/metas/aportes" && method === "POST") {
       data.goals[0].saved = `${body.amount}.00`;
       data.goals[0].contributions.push({ id: "5", date: body.date, amount: `${body.amount}.00`,
-                                        note: body.note, editable: true });
+                                        note: body.note, editable: true, needsAccounts: false,
+                                        sourceAccount: account.name, destinationAccount: secondAccount.name });
+      result = { message: "Guardado." };
+    } else if (url.pathname === "/api/metas/aportes" && method === "PUT") {
+      Object.assign(data.goals[0].contributions.find((item) => item.id === body.id), {
+        needsAccounts: false, sourceAccount: account.name, destinationAccount: secondAccount.name,
+      });
       result = { message: "Guardado." };
     } else if (url.pathname === "/api/metas/aportes" && method === "DELETE") {
       data.goals[0].saved = "0";
       data.goals[0].contributions = [];
       result = { message: "Eliminado." };
-    } else if (url.pathname === "/api/reportes") {
-      result = { total: data.expense ? `${data.expense.amount}.00` : "0", average: "0",
-                 monthly: [], categories: [] };
     } else {
       throw new Error(`Solicitud inesperada: ${method} ${url.pathname}`);
     }
@@ -153,22 +296,306 @@ test("los módulos coordinan la sesión, los movimientos y la planificación", a
   assert.equal(element("#auth-status").textContent, "Las contraseñas no coinciden.");
   assert.ok(!requests.some((request) => request.path === "/api/auth/register"));
   field("#register-form", "passwordConfirm", "contraseña de prueba");
+  data.budget = { amount: "350" };
+  let releaseCategoryLoad;
+  data.categoryLoadGate = new Promise((resolve) => { releaseCategoryLoad = resolve; });
   submit("#register-form");
+  await waitFor(() => element("#budget-period").textContent.startsWith("Presupuestos del mes:"));
+  data.categoryLoadGate = null;
+  releaseCategoryLoad();
+  await waitFor(() => element('[aria-label="Presupuesto de Supermercado"]') && !element('[aria-label="Presupuesto de Supermercado"]').disabled);
+  assert.equal(element('[aria-label="Presupuesto de Supermercado"]').value, "350");
+  data.budget = null;
+  submit("#month-form");
+  await waitFor(() => element('[aria-label="Presupuesto de Supermercado"]')?.value === "");
   await waitFor(() => element("#expense-form [name=categoryId]").options.length === 2);
+  await waitFor(() => !element("#dashboard-content").hidden);
   assert.equal(element("#user-email").textContent, "test@example.test");
+  assert.equal(window.document.title, "Finance Tracker");
+  assert.equal(element('link[rel="icon"]').getAttribute("href"), "/assets/finance-tracker-icon.svg");
+  assert.equal(element(".brand img").getAttribute("src"), "/assets/finance-tracker-icon.svg");
+  assert.equal(element(".site-footer a[aria-label*='GitHub']").href, "https://github.com/pablo-dz/finance-tracker");
+  assert.equal(element(".site-footer a[aria-label*='LinkedIn']").href, "https://www.linkedin.com/in/paaldz/");
+  assert.equal(element("#dashboard-view").hidden, false);
+  assert.equal(window.document.querySelectorAll(".dashboard-grid > .dashboard-section[open]").length, 7);
+  assert.equal(window.document.body.classList.contains("dashboard-layout"), true);
+  const firstDashboardCard = element(".dashboard-grid > .dashboard-section");
+  firstDashboardCard.querySelector("summary").click();
+  assert.equal(firstDashboardCard.open, false);
+  firstDashboardCard.querySelector("summary").click();
+  assert.equal(firstDashboardCard.open, true);
+  assert.equal(element("#movements-view").hidden, true);
+  assert.equal(element("#accounts-panel").hidden, true);
+  assert.equal(element("#savings-panel").hidden, true);
+  assert.equal(element("#nav-dashboard").getAttribute("aria-current"), "page");
+  assert.equal(element("#budget-panel"), null);
+  assert.equal(element("#total"), null);
+  assert.equal(element("#count"), null);
+  assert.equal(element("#income-card"), null);
+  assert.match(element("#dashboard-top-chart").textContent, /No hay gastos para este mes/);
+  assert.equal(element("#dashboard-merchants"), null);
+  assert.match(element("#dashboard-summary").textContent, /Sin ingresos/);
+  assert.deepEqual([...element('[aria-label="Desglose de gastos"]').querySelectorAll(".expense-breakdown-row")]
+    .map((row) => row.textContent), ["Fijos$0", "Variables$0"]);
+  assert.equal(element("#dashboard-fixed-chart"), null);
+  assert.equal([...window.document.querySelectorAll("summary")].some((item) => item.textContent === "Gastos fijos y variables"), false);
+  assert.equal(element("#dashboard-trend-chart svg").getAttribute("aria-hidden"), "true");
+  for (const selector of ["#dashboard-trend-chart", "#dashboard-balance-chart"]) {
+    assert.equal(element(`${selector} .visualization-axis-x`).textContent, "Mes");
+    assert.equal(element(`${selector} .visualization-axis-y`).textContent, "Monto (CLP)");
+  }
+  const balanceChart = element("#dashboard-balance-chart");
+  assert.match(balanceChart.querySelector(".visualization-legend").textContent, /Saldo total.*Cuenta principal.*Ahorro/);
+  assert.equal(balanceChart.querySelectorAll("polyline").length, 3);
+  assert.equal(element("#dashboard-balances").className, "visually-hidden");
+  const balancePoint = balanceChart.querySelector(".visualization-point-target");
+  balancePoint.dispatchEvent(new window.MouseEvent("mouseenter"));
+  assert.match(balanceChart.querySelector(".line-tooltip").textContent, /Cuenta principal:.*Ahorro: \$45,5/);
+  assert.ok(balancePoint.getAttribute("aria-label").includes("Ahorro: $45,5"));
+  assert.equal([...window.document.querySelectorAll("summary")].some((item) => item.textContent === "Ver saldos mensuales"), false);
+  assert.equal(element("#goal-projection-controls").hidden, true);
+  assert.equal(element("#goal-projection-status").textContent, "No hay metas de ahorro.");
 
+  data.dashboardToday = "2024-01-31";
+  data.dashboardGoals = [
+    { id: 11, name: "Viaje", saved: "400.00", target: "1000.00", recent: "900.00",
+      estimate: { status: "estimated", date: "2024-03-31" } },
+    { id: 12, name: "Fondo", saved: "0", target: "1000", recent: "0",
+      estimate: { status: "insufficient", date: null } },
+    { id: 13, name: "Completa", saved: "1100", target: "1000", recent: "0",
+      estimate: { status: "achieved", date: null } },
+    { id: 14, name: "Lejana", saved: "0", target: "1000", recent: "0.01",
+      estimate: { status: "out_of_range", date: null } },
+    { id: 15, name: "Larga", saved: "0", target: "4800", recent: "30",
+      estimate: { status: "estimated", date: "2064-01-31" } },
+    { id: 16, name: "Centavos", saved: "0", target: "0.01", recent: "0.01",
+      estimate: { status: "estimated", date: "2024-04-30" } },
+  ];
+  submit("#month-form");
+  await waitFor(() => element("#goal-projection-status").textContent.includes("Fecha estimada: 31/03/2024"));
+  assert.equal(element("#goal-projection-controls").hidden, false);
+  assert.deepEqual([...element("#goal-projection-select").options].map((option) => option.value),
+    ["11", "12", "14", "15", "16"]);
+  assert.match(element("#goal-projection-status").textContent, /Ahorrado: \$400 de \$1.000/);
+  assert.deepEqual([...element("#goal-projection-values").children].map((item) => item.textContent), [
+    "31/01/2024: Proyección: $400 · Meta: $1.000",
+    "29/02/2024: Proyección: $700 · Meta: $1.000",
+    "31/03/2024: Proyección: $1.000 · Meta: $1.000",
+  ]);
+  const projection = element("#goal-projection-chart");
+  assert.equal(projection.querySelectorAll("polyline")[0].getAttribute("stroke-dasharray"), "8 4");
+  const point = projection.querySelectorAll(".visualization-point-target")[1];
+  point.dispatchEvent(new window.MouseEvent("mouseenter"));
+  assert.match(projection.querySelector(".line-tooltip").textContent, /29\/02\/2024.*Proyección: \$700.*Meta: \$1.000/);
+  for (const [id, message] of [
+    ["12", "Sin suficientes aportes"], ["14", "fuera del rango disponible"],
+  ]) {
+    element("#goal-projection-select").value = id;
+    element("#goal-projection-select").dispatchEvent(new window.Event("change", { bubbles: true }));
+    assert.ok(element("#goal-projection-status").textContent.includes(message));
+    assert.equal(projection.querySelector("svg"), null);
+  }
+  element("#goal-projection-select").value = "15";
+  element("#goal-projection-select").dispatchEvent(new window.Event("change", { bubbles: true }));
+  assert.equal(element("#goal-projection-values").children.length, 13);
+  assert.match(element("#goal-projection-values").lastElementChild.textContent, /31\/01\/2064: Proyección: \$4.800/);
+  element("#goal-projection-select").value = "16";
+  element("#goal-projection-select").dispatchEvent(new window.Event("change", { bubbles: true }));
+  assert.match(element("#goal-projection-values").children[2].textContent, /31\/03\/2024: Proyección: \$0 ·/);
+  assert.match(element("#goal-projection-values").lastElementChild.textContent, /30\/04\/2024: Proyección: \$0,01/);
+  element("#goal-projection-select").value = "15";
+  element("#goal-projection-select").dispatchEvent(new window.Event("change", { bubbles: true }));
+  submit("#month-form");
+  await waitFor(() => !element("#dashboard-content").hidden && element("#goal-projection-select").value === "15");
+  data.dashboardGoals[4].estimate = { status: "achieved", date: null };
+  submit("#month-form");
+  await waitFor(() => element("#goal-projection-select").value === "11");
+  assert.ok(![...element("#goal-projection-select").options].some((option) => option.value === "15"));
+  data.dashboardGoals = [data.dashboardGoals[2]];
+  submit("#month-form");
+  await waitFor(() => element("#goal-projection-status").textContent === "No hay metas de ahorro pendientes.");
+  assert.equal(element("#goal-projection-controls").hidden, true);
+  assert.equal(projection.querySelector("svg"), null);
+  assert.equal(element("#goal-projection-values").children.length, 0);
+  data.dashboardGoals = null;
+  data.dashboardToday = null;
+  submit("#month-form");
+  await waitFor(() => element("#goal-projection-status").textContent === "No hay metas de ahorro.");
+
+  const initialMonth = element("#month").value;
+  element("#month").value = "2024-12";
+  data.dashboardMonthly = Array.from({ length: 12 }, (_, index) => ({
+    month: `2024-${String(index + 1).padStart(2, "0")}`, income: index === 0 ? "100" : "0",
+    expenses: index === 0 ? "60" : "0", saving: index === 0 ? "40" : "0",
+  }));
+  data.dashboardCategories = [
+    { id: 2, name: "Groceries", month: "2024-01", amount: "20", fixed: false },
+    { id: 2, name: "Groceries", month: "2024-12", amount: "75", fixed: false },
+    { id: null, name: "Sin categoría", month: "2024-11", amount: "40", fixed: null },
+    { id: null, name: "Sin categoría", month: "2024-12", amount: "25", fixed: null },
+    { id: 10, name: "Servicio", month: "2024-12", amount: "12.34", fixed: true },
+    { id: 9, name: "Histórica", month: "2024-02", amount: "15", fixed: false },
+  ];
+  submit("#month-form");
+  await waitFor(() => element("#category-evolution-title").textContent === "Evolución: Supermercado"
+    && !element("#dashboard-content").hidden);
+  const expensesMetric = element('[aria-label="Desglose de gastos"]').closest(".dashboard-metric");
+  assert.equal(expensesMetric.querySelector("span").textContent, "Gastos");
+  assert.deepEqual([...expensesMetric.querySelectorAll(".expense-breakdown-row")].map((row) => row.textContent),
+    ["Fijos$12,34", "Variables$75", "Sin clasificar$25"]);
+  assert.ok(expensesMetric.querySelector("small").textContent.includes("frente al mes anterior"));
+  assert.ok(element("#dashboard-trend").classList.contains("visually-hidden"));
+  assert.equal([...window.document.querySelectorAll("summary")].some((item) => item.textContent === "Ver datos mensuales"), false);
+  const trendPoint = element("#dashboard-trend-chart .visualization-point-target");
+  trendPoint.dispatchEvent(new window.MouseEvent("mouseenter"));
+  assert.match(element("#dashboard-trend-chart .line-tooltip").textContent,
+    /2024-01.*Ingresos: \$100.*Gastos: \$60.*Ahorro neto: \$40/);
+  assert.match(element("#dashboard-trend").textContent, /2024-01: Ingresos: \$100.*Gastos: \$60.*Ahorro neto: \$40/);
+  assert.equal(element("#category-evolution-values").children.length, 12);
+  assert.equal(element("#category-evolution-chart .visualization-axis-x").textContent, "Mes");
+  assert.equal(element("#category-evolution-chart .visualization-axis-y").textContent, "Monto (CLP)");
+  assert.deepEqual([...element("#category-evolution-chart").querySelectorAll(".visualization-y-tick")]
+    .map((tick) => tick.textContent), ["$82,5", "$60", "$40", "$20", "$0"]);
+  assert.ok(element("#category-evolution-values").classList.contains("visually-hidden"));
+  assert.equal(element("#dashboard-category-trend"), null);
+  assert.match(element("#category-evolution-values").textContent, /2024-01: \$20.*2024-02: \$0/);
+  assert.equal(element("#category-evolution-chart").querySelectorAll("circle").length, 12);
+  const evolutionPoints = element("#category-evolution-chart").querySelectorAll(".visualization-point-target");
+  assert.equal(evolutionPoints.length, 12);
+  evolutionPoints[0].dispatchEvent(new window.MouseEvent("mouseenter"));
+  assert.match(element("#category-evolution-chart .line-tooltip").textContent, /2024-01.*Supermercado: \$20/);
+  evolutionPoints[1].focus();
+  assert.match(element("#category-evolution-chart .line-tooltip").textContent, /2024-02.*Supermercado: \$0/);
+  assert.deepEqual([...element("#category-evolution-chart").querySelectorAll("svg text")].map((tick) => tick.textContent),
+    ["2024-01", "2024-03", "2024-05", "2024-07", "2024-09", "2024-12"]);
+  const choices = [...window.document.querySelectorAll(".category-pie-choice")];
+  const assertEvolutionColor = (choice) => {
+    const color = choice.querySelector(".visualization-marker").style.backgroundColor;
+    const chart = element("#category-evolution-chart");
+    const normalizeColor = (value) => {
+      const marker = window.document.createElement("span");
+      marker.style.backgroundColor = value;
+      return marker.style.backgroundColor;
+    };
+    assert.equal(chart.querySelector(".visualization-marker").style.backgroundColor, color);
+    assert.equal(normalizeColor(chart.querySelector("polyline").getAttribute("stroke")), color);
+    assert.equal(normalizeColor(chart.querySelector("circle").getAttribute("fill")), color);
+  };
+  assertEvolutionColor(choices[0]);
+  choices[1].dispatchEvent(new window.MouseEvent("mouseenter"));
+  assert.equal(element("#category-evolution-title").textContent, "Evolución: Sin categoría");
+  assert.deepEqual([...element("#category-evolution-chart").querySelectorAll(".visualization-y-tick")]
+    .map((tick) => tick.textContent), ["$44", "$40", "$30", "$20", "$10", "$0"]);
+  assert.notEqual(choices[0].querySelector(".visualization-marker").style.backgroundColor,
+    choices[1].querySelector(".visualization-marker").style.backgroundColor);
+  assertEvolutionColor(choices[1]);
+  assert.match(element("#category-evolution-values").textContent, /2024-11: \$40.*2024-12: \$25/);
+  element("#category-evolution-chart").querySelectorAll(".visualization-point-target")[11].click();
+  assert.match(element("#category-evolution-chart .line-tooltip").textContent, /2024-12.*Sin categoría: \$25/);
+  element("#dashboard-period").value = "6";
+  element("#dashboard-period").dispatchEvent(new window.Event("change", { bubbles: true }));
+  assert.equal(element("#category-evolution-title").textContent, "Evolución: Sin categoría");
+  assert.equal(element("#category-evolution-values").children.length, 6);
+  assertEvolutionColor(element('.category-pie-choice[aria-pressed="true"]'));
+  element("#dashboard-period").value = "12";
+  element("#dashboard-period").dispatchEvent(new window.Event("change", { bubbles: true }));
+  const historicalChoice = [...window.document.querySelectorAll(".category-pie-choice")]
+    .find((button) => button.textContent.includes("Histórica"));
+  assert.match(historicalChoice.textContent, /Sin gasto este mes/);
+  historicalChoice.click();
+  assert.equal(element("#category-evolution-title").textContent, "Evolución: Histórica");
+  assertEvolutionColor(historicalChoice);
+  assert.match(element("#category-evolution-values").textContent, /2024-02: \$15/);
+  element("#category-evolution-chart").querySelectorAll(".visualization-point-target")[1].click();
+  assert.match(element("#category-evolution-chart .line-tooltip").textContent, /2024-02.*Histórica: \$15/);
+  data.dashboardCategories = [{ id: 9, name: "Histórica", month: "2024-11", amount: "15", fixed: false }];
+  submit("#month-form");
+  await waitFor(() => element("#dashboard-category-chart").textContent.includes("No hay gastos para el mes seleccionado")
+    && !element("#dashboard-content").hidden);
+  assert.match(element("#dashboard-category-chart").textContent, /Histórica.*Sin gasto este mes/);
+  assert.equal(element("#category-evolution-title").textContent, "Evolución: Histórica");
+  assertEvolutionColor(element('.category-pie-choice[aria-pressed="true"]'));
+  assert.match(element("#category-evolution-values").textContent, /2024-11: \$15/);
+  data.dashboardMonthly = null;
+  data.dashboardCategories = null;
+  element("#dashboard-period").value = "12";
+  element("#month").value = initialMonth;
+  submit("#month-form");
+  await waitFor(() => !element("#dashboard-content").hidden
+    && element("#dashboard-category-chart").textContent.includes("No hay gastos"));
+
+  data.dashboardBudgets = [
+    { category: "Normal", budget: "100.00", spent: "79.99", difference: "20.01", exceeded: false },
+    { category: "Alerta", budget: "100.00", spent: "80.00", difference: "20.00", exceeded: false },
+    { category: "Límite", budget: "100.00", spent: "100.00", difference: "0.00", exceeded: false },
+    { category: "Exceso", budget: "100.00", spent: "150.00", difference: "50.00", exceeded: true },
+    { category: "Exceso mínimo", budget: "1000.00", spent: "1000.01", difference: "0.01", exceeded: true },
+    { category: "Bajo la alerta", budget: "1000.00", spent: "799.99", difference: "200.01", exceeded: false },
+    { category: "Muy pequeño", budget: "999999999999.00", spent: "0.01", difference: "999999999998.99", exceeded: false },
+    { category: "Cero con gasto", budget: "0.00", spent: "10.00", difference: "10.00", exceeded: true },
+    { category: "Cero sin gasto", budget: "0.00", spent: "0.00", difference: "0.00", exceeded: false },
+    { category: "Sin límite", budget: null, spent: "20.00", difference: null, exceeded: false },
+  ];
+  submit("#month-form");
+  await waitFor(() => element("#dashboard-budget-chart").textContent.includes("Cero con gasto")
+    && !element("#dashboard-content").hidden);
+  const chart = element("#dashboard-budget-chart");
+  assert.deepEqual([...chart.querySelectorAll(".budget-plot-labels span")].map((item) => item.textContent),
+    ["Cero con gasto", "Exceso", "Exceso mínimo", "Límite", "Alerta", "Bajo la alerta", "Normal", "Muy pequeño", "Cero sin gasto"]);
+  const columns = [...chart.querySelectorAll(".budget-column-exceeded, .budget-column-within")];
+  assert.deepEqual(columns.map((column) => column.getAttribute("class")),
+    ["budget-column-exceeded", "budget-column-exceeded", "budget-column-exceeded",
+     "budget-column-within", "budget-column-within", "budget-column-within",
+     "budget-column-within", "budget-column-within", "budget-column-within"]);
+  const descriptions = [...chart.querySelectorAll(".budget-bar-target")].map((target) => target.getAttribute("aria-label"));
+  assert.match(descriptions[1], /150 %.*Presupuesto excedido/);
+  assert.match(descriptions[2], />100 %.*Presupuesto excedido/);
+  assert.match(descriptions[5], /79,99 %.*Dentro del presupuesto/);
+  assert.match(descriptions[7], /<0,01 %/);
+  assert.match(descriptions[0], /Cero con gasto.*Excedido: \$10/);
+  assert.match(element("#dashboard-budget-chart").textContent, /Sin presupuesto.*Sin límite.*Gastado: \$20/);
+  assert.equal(element("#dashboard-budgets"), null);
+  data.dashboardBudgets = [];
+  submit("#month-form");
+  await waitFor(() => element("#dashboard-budget-chart").textContent.includes("No hay categorías")
+    && !element("#dashboard-content").hidden);
+  data.dashboardBudgets = null;
+  submit("#month-form");
+  await waitFor(() => element("#dashboard-budget-chart").textContent.includes("Sin presupuesto")
+    && !element("#dashboard-content").hidden);
+
+  element("#nav-movements").click();
+  assert.equal(element("#dashboard-view").hidden, true);
+  assert.equal(element("#movements-view").hidden, false);
+  assert.equal(element("#nav-movements").getAttribute("aria-current"), "page");
+  assert.equal(element("#month-form").hidden, true);
+  assert.ok(element("#movements-view").contains(element("#expense-form")));
+  assert.ok(element("#registration").compareDocumentPosition(element("#movements")) & window.Node.DOCUMENT_POSITION_FOLLOWING);
+  assert.ok(element("#income-registration").compareDocumentPosition(element("#movements")) & window.Node.DOCUMENT_POSITION_FOLLOWING);
+  data.extraMovements = [{ id: "transaction-9", type: "expense", description: "Histórico",
+    date: "2001-01-01", amount: "12.50", account: "Cuenta principal", category: null, editable: false }];
   field("#expense-form", "merchant", "Compra");
   field("#expense-form", "amount", "1500");
   field("#expense-form", "accountId", "1");
   field("#expense-form", "categoryId", "2");
   submit("#expense-form");
   await waitFor(() => element("#movements").textContent.includes("Compra") && !element("#save-expense").disabled);
-  assert.equal(element("#total").textContent, "$1.500");
-  assert.match(element("#categories").textContent, /Supermercado.*100 %/);
+  await waitFor(() => element("#dashboard-top-chart .horizontal-bar"));
+  assert.match(element("#dashboard-top-chart .horizontal-bar").getAttribute("aria-label"), /Compra.*Fecha:.*Monto: \$1.500/);
+  assert.equal(element("#categories"), null);
+  assert.equal(element("#report-panel"), null);
+  assert.match(element("#movements .movement-amount.expense").textContent, /↓ −\$1.500/);
+  assert.match(element("#movements").textContent, /Histórico.*Egreso.*−\$12,5/);
+  assert.equal(element('[aria-label="Editar Histórico"]'), null);
+  assert.ok(!requests.some((request) => request.path === "/api/reportes"));
   element('[aria-label="Editar Compra"]').click();
+  assert.equal(element("#registration").open, true);
   field("#expense-form", "amount", "1200");
   submit("#expense-form");
-  await waitFor(() => element("#total").textContent === "$1.200" && !element("#save-expense").disabled);
+  await waitFor(() => element("#dashboard-summary").textContent.includes("Gastos$1.200") && !element("#save-expense").disabled);
+  assert.match(element("#dashboard-summary").textContent, /Gastos\$1.200/);
+  assert.match(element("#dashboard-pace-note").textContent, /Gastos sin presupuesto hasta la fecha: \$1.200/);
+  assert.match(element("#dashboard-category-chart").textContent, /Supermercado.*100 %/);
   assert.ok(requests.some((request) => request.path === "/api/gastos" && request.method === "PUT" && request.body.id === "1"));
 
   field("#expense-form", "merchant", "Rechazado");
@@ -177,7 +604,7 @@ test("los módulos coordinan la sesión, los movimientos y la planificación", a
   field("#expense-form", "categoryId", "2");
   submit("#expense-form");
   await waitFor(() => element("#form-message").textContent === "No se pudo guardar el gasto.");
-  assert.equal(element("#total").textContent, "$1.200");
+  assert.match(element("#dashboard-summary").textContent, /Gastos\$1.200/);
   assert.equal(element('#expense-form [name="merchant"]').value, "Rechazado");
 
   field("#income-form", "merchant", "Sueldo");
@@ -185,15 +612,22 @@ test("los módulos coordinan la sesión, los movimientos y la planificación", a
   field("#income-form", "accountId", "1");
   field("#income-form", "categoryId", "3");
   submit("#income-form");
-  await waitFor(() => element("#income-movements").textContent.includes("Sueldo") && !element("#save-income").disabled);
-  assert.equal(element("#income-total").textContent, "$3.000");
+  await waitFor(() => element("#movements").textContent.includes("Sueldo") && !element("#save-income").disabled);
+  await waitFor(() => element("#dashboard-summary").textContent.includes("Ingresos$3.000"));
+  assert.match(element("#movements .movement-amount.income").textContent, /↑ \+\$3.000/);
+  assert.match(element("#movements").textContent, /Compra/);
+  element('[aria-label="Editar ingreso Sueldo"]').click();
+  assert.equal(element("#income-registration").open, true);
+  assert.equal(element("#income-form [name=amount]").value, "3000");
+  element("#cancel-income-edit").click();
 
   field("#transfer-form", "amount", "200.50");
   field("#transfer-form", "sourceAccountId", "1");
   field("#transfer-form", "destinationAccountId", "6");
   field("#transfer-form", "note", "Ahorro");
   submit("#transfer-form");
-  await waitFor(() => element("#income-movements").textContent.includes("Ahorro") && !element("#save-transfer").disabled);
+  await waitFor(() => element("#transfer-movements").textContent.includes("Ahorro") && !element("#save-transfer").disabled);
+  assert.ok(!element("#movements").textContent.includes("Ahorro"));
   element('[aria-label="Editar transferencia Ahorro"]').click();
   field("#transfer-form", "amount", "300.50");
   submit("#transfer-form");
@@ -201,45 +635,428 @@ test("los módulos coordinan la sesión, los movimientos y la planificación", a
   assert.ok(requests.some((request) => request.path === "/api/transferencias" && request.method === "PUT"
     && request.body.id === "3" && request.body.amount === "300.50"));
 
+  const setFilter = (name, value) => {
+    const control = element(`#movement-filter-form [name="${name}"]`);
+    control.value = value;
+    control.dispatchEvent(new window.Event("input", { bubbles: true }));
+  };
+  setFilter("from", "2001-01-01");
+  setFilter("to", "2001-01-01");
+  assert.match(element("#movements").textContent, /Histórico/);
+  assert.doesNotMatch(element("#movements").textContent, /Compra|Sueldo/);
+  setFilter("from", "2001-01-02");
+  assert.match(element("#movement-filter-status").textContent, /fecha inicial/);
+  assert.equal(element("#movements").children.length, 0);
+  element("#clear-movement-filters").click();
+  setFilter("description", "hIsToRiCo");
+  assert.match(element("#movements").textContent, /Histórico/);
+  assert.doesNotMatch(element("#movements").textContent, /Compra/);
+  setFilter("type", "income");
+  assert.equal(element("#movements-empty").hidden, false);
+  assert.match(element("#movements-empty").textContent, /coincidan/);
+  element("#clear-movement-filters").click();
+  setFilter("category", "2");
+  setFilter("type", "expense");
+  setFilter("account", "1");
+  assert.match(element("#movements").textContent, /Compra/);
+  assert.doesNotMatch(element("#movements").textContent, /Sueldo|Histórico/);
+  assert.equal(element("#transfer-movements").children.length, 0);
+  setFilter("type", "");
+  setFilter("account", "");
+  setFilter("category", "uncategorized");
+  assert.match(element("#movements").textContent, /Histórico/);
+  element("#clear-movement-filters").click();
+  setFilter("account", "6");
+  assert.equal(element("#movements").children.length, 0);
+  assert.match(element("#transfer-movements").textContent, /Ahorro/);
+  setFilter("type", "income");
+  assert.equal(element("#transfer-movements").children.length, 0);
+  element("#clear-movement-filters").click();
+  setFilter("type", "transfer");
+  setFilter("description", "ahorro");
+  assert.match(element("#transfer-movements").textContent, /Ahorro/);
+  submit("#month-form");
+  await waitFor(() => element("#transfer-movements").textContent.includes("Ahorro"));
+  assert.equal(element('#movement-filter-form [name="type"]').value, "transfer");
+  assert.equal(element("#movements").children.length, 0);
+  element("#clear-movement-filters").click();
+  assert.match(element("#movements").textContent, /Compra/);
+  assert.match(element("#transfer-movements").textContent, /Ahorro/);
+
+  element("#nav-accounts").click();
+  assert.equal(window.document.body.classList.contains("dashboard-layout"), false);
+  assert.equal(element("#nav-accounts").getAttribute("aria-current"), "page");
+  assert.equal(element("#movements-view").hidden, true);
+  assert.equal(element("#dashboard-view").hidden, true);
+  assert.equal(element("#accounts-panel").hidden, false);
+  assert.equal(element("#month-form").hidden, true);
+  assert.match(element("#accounts").textContent, /Cuenta principal/);
+  field("#account-form", "name", "Fondo");
+  field("#account-form", "amount", "200");
+  field("#account-form", "date", "2020-06-01");
+  submit("#account-form");
+  await waitFor(() => element("#account-form-message").textContent === "Cuenta creada correctamente.");
+  assert.deepEqual(data.createdAccount, { name: "Fondo", type: "savings", amount: "200", date: "2020-06-01" });
+  data.failExpenses = true;
+  submit("#month-form");
+  await waitFor(() => element("#message").textContent === "Gastos no disponibles.");
+  assert.equal(element("#accounts-panel").hidden, false);
+  data.failExpenses = false;
+
   field("#opening-balance-form", "amount", "1000");
+  field("#opening-balance-form", "date", "2020-06-01");
   submit("#opening-balance-form");
-  await waitFor(() => element("#opening-balance-message").textContent === "Saldo inicial actualizado correctamente.");
+  await waitFor(() => element("#opening-balance-message").textContent === "Saldo inicial configurado correctamente.");
   assert.ok(requests.some((request) => request.path === "/api/cuentas/saldo-inicial"
-    && request.body.expectedAmount === "0.00"));
+    && request.body.date === "2020-06-01"));
+  assert.equal(element("#opening-balance-form").hidden, true);
+  field("#balance-adjustment-form", "accountId", "1");
+  field("#balance-adjustment-form", "amount", "-50");
+  field("#balance-adjustment-form", "date", "2020-06-02");
+  field("#balance-adjustment-form", "reason", "Corrección");
+  submit("#balance-adjustment-form");
+  await waitFor(() => element("#balance-adjustments").textContent.includes("Corrección"));
+  assert.ok(requests.some((request) => request.path === "/api/cuentas/ajustes" && request.method === "POST"
+    && request.body.amount === "-50" && request.body.date === "2020-06-02"));
+  element('[aria-label="Eliminar ajuste Corrección de Cuenta principal del 2020-06-02"]').click();
+  await waitFor(() => element("#balance-adjustments").children.length === 0);
 
-  field("#budget-form", "categoryId", "2");
-  field("#budget-form", "amount", "1700");
-  submit("#budget-form");
-  await waitFor(() => element("#budgets").textContent.includes("Límite: $1.700"));
-  assert.match(element("#budgets").textContent, /Disponible: \$500/);
-  element('[aria-label^="Cambiar límite de Supermercado"]').click();
-  field("#budget-form", "amount", "2000");
-  submit("#budget-form");
-  await waitFor(() => element("#budget-form-message").textContent === "El presupuesto cambió.");
-  assert.ok(requests.some((request) => request.path === "/api/presupuestos" && request.method === "PUT"
-    && request.body.expectedAmount === "1700.00"));
+  element("#nav-categories").click();
+  assert.equal(element("#accounts-panel").hidden, true);
+  assert.equal(element("#month-form").hidden, false);
+  assert.equal(element("#dashboard-view").hidden, true);
+  element("#month").value = "2024-12";
+  submit("#month-form");
+  await waitFor(() => element("#budget-period").textContent === "Presupuestos del mes: 2024-12");
+  assert.ok(requests.some((request) => request.path === "/api/presupuestos" && request.month === "2024-12"));
+  element("#month").value = initialMonth;
+  submit("#month-form");
+  await waitFor(() => element("#budget-period").textContent === `Presupuestos del mes: ${initialMonth}`);
+  const budgetInput = element('[aria-label="Presupuesto de Supermercado"]');
+  budgetInput.value = "1700";
+  budgetInput.dispatchEvent(new window.Event("input", { bubbles: true }));
+  element("#save-categories").click();
+  await waitFor(() => element("#category-status").textContent === "Categorías actualizadas correctamente.");
+  assert.ok(requests.some((request) => request.path === "/api/categorias/lote"
+    && request.body.changes[0].budget.amount === "1700"));
+  await waitFor(() => element("#dashboard-budget-chart .budget-bar-target")?.getAttribute("aria-label").includes("Límite: $1.700"));
+  element("#nav-dashboard").click();
+  assert.equal(element("#category-panel").hidden, true);
+  assert.equal(element("#dashboard-view").hidden, false);
+  assert.equal(element("#dashboard-pace-chart svg").querySelectorAll("polyline").length, 2);
+  assert.equal(element("#dashboard-pace-chart .visualization-axis-x").textContent, "Día del mes");
+  assert.equal(element("#dashboard-pace-chart .visualization-axis-y").textContent, "Monto (CLP)");
+  assert.ok(element("#dashboard-pace").classList.contains("visually-hidden"));
+  assert.equal([...window.document.querySelectorAll("summary")].some((item) => item.textContent === "Ver datos diarios"), false);
+  const pacePoints = element("#dashboard-pace-chart").querySelectorAll(".visualization-point-target");
+  assert.equal(pacePoints.length, 32);
+  pacePoints[3].dispatchEvent(new window.MouseEvent("mouseenter"));
+  const paceTooltip = element("#dashboard-pace-chart .line-tooltip");
+  assert.match(paceTooltip.textContent, /Día 3.*Gasto acumulado: \$1.200.*Ritmo ideal: \$/);
+  for (const value of paceTooltip.querySelectorAll("span")) {
+    assert.ok(element("#dashboard-pace").children[2].textContent.includes(value.textContent));
+  }
+  assert.match(pacePoints[3].getAttribute("aria-label"), /Día 3.*Gasto acumulado: \$1.200.*Ritmo ideal: \$/);
+  pacePoints[0].focus();
+  assert.match(paceTooltip.textContent, /Día 0.*Gasto acumulado: \$0.*Ritmo ideal: \$0/);
+  pacePoints[3].click();
+  assert.match(paceTooltip.textContent, /Día 3.*Gasto acumulado: \$1.200/);
+  pacePoints[19].click();
+  assert.match(paceTooltip.textContent, /Día 3.*Gasto acumulado: \$1.200.*Ritmo ideal: \$/);
+  for (const [spent, expected] of [["1360", "Alerta: 80 % o más"],
+                                   ["1700", "Límite alcanzado"],
+                                   ["1701", "Presupuesto excedido"]]) {
+    data.expense.amount = spent;
+    submit("#month-form");
+    await waitFor(() => element("#dashboard-budget-chart .budget-bar-target")?.getAttribute("aria-label").includes(expected)
+      && !element("#dashboard-content").hidden);
+  }
+  data.budget.amount = "0";
+  submit("#month-form");
+  await waitFor(() => element("#dashboard-budget-chart .budget-bar-target")?.getAttribute("aria-label").includes("Límite: $0")
+    && element("#dashboard-budget-chart .budget-bar-target")?.getAttribute("aria-label").includes("Presupuesto excedido")
+    && !element("#dashboard-content").hidden);
+  data.budget.amount = "1700";
+  data.expense.amount = "1200";
+  submit("#month-form");
+  await waitFor(() => element("#dashboard-budget-chart .budget-bar-target")?.getAttribute("aria-label").includes("Disponible: $500")
+    && !element("#dashboard-content").hidden);
+  element("#nav-categories").click();
+  const editedBudget = element('[aria-label="Presupuesto de Supermercado"]');
+  editedBudget.value = "2000";
+  editedBudget.dispatchEvent(new window.Event("input", { bubbles: true }));
+  setGlobal("confirm", () => false);
+  element("#month").value = "2024-12";
+  submit("#month-form");
+  assert.equal(element("#month").value, initialMonth);
+  assert.equal(editedBudget.value, "2000");
+  setGlobal("confirm", () => true);
+  field("#income-form", "merchant", "Ingreso anterior");
+  field("#income-form", "amount", "200");
+  field("#income-form", "date", "2023-01-01");
+  field("#income-form", "accountId", "1");
+  field("#income-form", "categoryId", "3");
+  submit("#income-form");
+  await waitFor(() => element("#income-form-message").textContent === "Ingreso registrado correctamente."
+    && !element("#save-income").disabled);
+  assert.equal(element("#month").value, initialMonth);
+  assert.match(element("#movements").textContent, /Ingreso anterior/);
+  assert.match(element("#movements").textContent, /Compra/);
+  assert.deepEqual([...element("#movements").querySelectorAll(".movement-detail > strong")]
+    .map((item) => item.textContent).slice(-2), ["Ingreso anterior", "Histórico"]);
+  assert.equal(element('[aria-label="Presupuesto de Supermercado"]').value, "2000");
+  data.budget.amount = "1750";
+  const budgetRequests = requests.filter((request) => request.path === "/api/presupuestos").length;
+  submit("#month-form");
+  await waitFor(() => requests.filter((request) => request.path === "/api/presupuestos").length > budgetRequests
+    && element('[aria-label="Presupuesto de Supermercado"]')?.value === "2000");
+  assert.equal(element("#save-categories").disabled, false);
+  data.failCategorySave = true;
+  element("#save-categories").click();
+  await waitFor(() => element("#category-status").textContent === "No se pudo guardar.");
+  assert.deepEqual(requests.filter((request) => request.path === "/api/categorias/lote").at(-1).body.changes[0].budget,
+    { month: initialMonth, amount: "2000", expectedAmount: "1700.00" });
+  data.failCategorySave = false;
+  data.budget.amount = "1700";
+  element('[aria-label="Archivar categoría Supermercado"]').click();
+  assert.match(element("#category-status").textContent, /antes de archivar/);
+  assert.ok(element('[aria-label="Archivar categoría Supermercado"]'));
+  element("#month").value = "2024-12";
+  submit("#month-form");
+  await waitFor(() => element("#budget-period").textContent === "Presupuestos del mes: 2024-12");
+  assert.equal(element('[aria-label="Presupuesto de Supermercado"]').value, "1700");
+  element("#month").value = initialMonth;
+  submit("#month-form");
+  await waitFor(() => element("#budget-period").textContent === `Presupuestos del mes: ${initialMonth}`);
+  data.budget.amount = "1700.50";
+  submit("#month-form");
+  await waitFor(() => element('[aria-label="Presupuesto de Supermercado"]')?.value === "1700.50");
+  const historicalType = element('[aria-label="Tipo de Supermercado"]');
+  historicalType.value = "true";
+  historicalType.dispatchEvent(new window.Event("change", { bubbles: true }));
+  element("#save-categories").click();
+  await waitFor(() => element("#category-status").textContent === "Categorías actualizadas correctamente.");
+  assert.equal(data.budget.amount, "1700.50");
+  assert.ok(!requests.filter((request) => request.path === "/api/categorias/lote").at(-1).body.changes[0].budget);
+  const deleteBudget = element('[aria-label="Presupuesto de Supermercado"]');
+  deleteBudget.value = "";
+  deleteBudget.dispatchEvent(new window.Event("input", { bubbles: true }));
+  element("#save-categories").click();
+  await waitFor(() => element("#category-status").textContent === "Categorías actualizadas correctamente.");
+  assert.equal(data.budget, null);
+  assert.deepEqual(requests.filter((request) => request.path === "/api/categorias/lote").at(-1).body.changes[0].budget,
+    { month: initialMonth, amount: null, expectedAmount: "1700.50" });
 
+  data.failExpenses = true;
+  submit("#month-form");
+  await waitFor(() => element("#message").textContent === "Gastos no disponibles.");
+  element("#nav-categories").click();
+  assert.equal(element("#dashboard-view").hidden, true);
+  assert.equal(element("#category-panel").hidden, false);
+  assert.equal(element("#budget-panel"), null);
+  assert.equal(element("#message").hidden, false);
+  assert.equal(element("#nav-categories").getAttribute("aria-current"), "page");
+  assert.equal(element("#nav-dashboard").hasAttribute("aria-current"), false);
+  data.failExpenses = false;
+  data.failCategories = true;
+  element("#refresh-categories").click();
+  await waitFor(() => element("#category-status").textContent === "Categorías no disponibles.");
+  assert.equal(element("#managed-categories").children.length, 0);
+  data.failCategories = false;
+  element("#refresh-categories").click();
+  await waitFor(() => element('[aria-label="Tipo de Supermercado"]'));
+
+  const classification = element('[aria-label="Tipo de Supermercado"]');
+  classification.value = "true";
+  classification.dispatchEvent(new window.Event("change", { bubbles: true }));
   field("#category-form", "name", "Mascotas");
   submit("#category-form");
-  await waitFor(() => element('[aria-label="Archivar categoría Mascotas"]'));
-  element('[aria-label="Archivar categoría Mascotas"]').click();
-  await waitFor(() => element('[aria-label="Restaurar categoría Mascotas"]')
-    && !element("#expense-form [name=categoryId]").textContent.includes("Mascotas"));
-  assert.ok(!element("#expense-form [name=categoryId]").textContent.includes("Mascotas"));
+  assert.ok(element('[aria-label="Quitar categoría Mascotas"]'));
+  const newBudget = element('[aria-label="Presupuesto de Mascotas"]');
+  newBudget.value = "0";
+  newBudget.dispatchEvent(new window.Event("input", { bubbles: true }));
+  assert.equal(data.categories[0].fixed, true);
+  assert.equal(data.categories.length, 1);
+  const savesBeforeFailure = requests.filter((request) => request.path === "/api/categorias/lote").length;
+  const leaveWithChanges = new window.Event("beforeunload", { cancelable: true });
+  assert.equal(window.dispatchEvent(leaveWithChanges), false);
+  element("#nav-savings").click();
+  assert.equal(element("#month-form").hidden, true);
+  element("#nav-categories").click();
+  assert.equal(element('[aria-label="Tipo de Supermercado"]').value, "true");
+  assert.ok(element('[aria-label="Quitar categoría Mascotas"]'));
+  data.failCategorySave = true;
+  element("#save-categories").click();
+  await waitFor(() => element("#category-status").textContent === "No se pudo guardar.");
+  assert.ok(element('[aria-label="Quitar categoría Mascotas"]'));
+  assert.equal(data.categories[0].fixed, true);
+  assert.equal(requests.filter((request) => request.path === "/api/categorias/lote").length, savesBeforeFailure + 1);
+  data.failCategorySave = false;
+  let releaseCategorySave;
+  data.categorySaveGate = new Promise((resolve) => { releaseCategorySave = resolve; });
+  element("#save-categories").click();
+  element("#logout-button").click();
+  assert.match(alertMessage, /Espera a que termine el guardado/);
+  assert.ok(!requests.some((request) => request.path === "/api/auth/logout"));
+  data.categorySaveGate = null;
+  releaseCategorySave();
+  await waitFor(() => element("#category-status").textContent === "Categorías actualizadas correctamente.");
+  assert.equal(data.categories[0].fixed, true);
+  assert.equal(data.categories.length, 2);
+  assert.equal(data.otherBudgets[7], "0");
+  assert.ok(requests.some((request) => request.path === "/api/categorias/lote"
+    && request.body.changes.some((change) => change.name === "Mascotas"
+      && change.budget?.amount === "0" && change.budget.expectedAmount === null)));
+  assert.equal(window.dispatchEvent(new window.Event("beforeunload", { cancelable: true })), true);
 
+  const draftType = element('[aria-label="Tipo de Supermercado"]');
+  draftType.value = "false";
+  draftType.dispatchEvent(new window.Event("change", { bubbles: true }));
+  element("#refresh-categories").click();
+  await waitFor(() => element('[aria-label="Tipo de Supermercado"]')?.value === "true");
+  assert.equal(data.categories[0].fixed, true);
+
+  const uncertainType = element('[aria-label="Tipo de Supermercado"]');
+  uncertainType.value = "false";
+  uncertainType.dispatchEvent(new window.Event("change", { bubbles: true }));
+  data.failCategorySave = "network";
+  element("#save-categories").click();
+  await waitFor(() => element("#category-status").textContent.includes("No se pudo confirmar el guardado"));
+  assert.equal(element("#save-categories").disabled, true);
+  data.failCategorySave = false;
+  element("#refresh-categories").click();
+  await waitFor(() => element('[aria-label="Tipo de Supermercado"]')?.value === "true");
+
+  const rename = element('[aria-label="Nombre de la categoría Mascotas"]');
+  rename.value = "Mascotas y salud";
+  rename.dispatchEvent(new window.Event("input", { bubbles: true }));
+  element('[aria-label="Archivar categoría Mascotas"]').click();
+  assert.equal(data.categories[1].name, "Mascotas");
+  assert.equal(data.categories[1].active, true);
+  element("#save-categories").click();
+  await waitFor(() => element('[aria-label="Restaurar categoría Mascotas y salud"]')
+    && !element("#expense-form [name=categoryId]").textContent.includes("Mascotas y salud"));
+  await waitFor(() => element("#category-status").textContent === "Categorías actualizadas correctamente.");
+  element('[aria-label="Restaurar categoría Mascotas y salud"]').click();
+  assert.equal(data.categories[1].active, false);
+  element("#save-categories").click();
+  await waitFor(() => element("#category-status").textContent === "Categorías actualizadas correctamente.");
+  assert.ok(element("#expense-form [name=categoryId]").textContent.includes("Mascotas y salud"));
+
+  element("#nav-savings").click();
+  assert.equal(element("#dashboard-view").hidden, true);
+  assert.equal(element("#savings-panel").hidden, false);
+  assert.equal(element("#category-panel").hidden, true);
+  assert.equal(element("#nav-savings").getAttribute("aria-current"), "page");
+  assert.equal(element("#nav-dashboard").hasAttribute("aria-current"), false);
   field("#savings-goal-form", "name", "Viaje");
   field("#savings-goal-form", "targetAmount", "10000");
+  field("#savings-goal-form", "accountId", "6");
   submit("#savings-goal-form");
   await waitFor(() => element("#savings-contribution-form [name=goalId]").options.length === 2);
+  data.failGoals = true;
+  element("#refresh-savings").click();
+  await waitFor(() => element("#savings-status").textContent === "Metas no disponibles.");
+  assert.equal(element("#save-contribution").disabled, true);
+  data.failGoals = false;
+  element("#refresh-savings").click();
+  await waitFor(() => element("#savings-contribution-form [name=goalId]").options.length === 2);
   field("#savings-contribution-form", "goalId", "4");
+  element("#savings-contribution-form [name=goalId]").dispatchEvent(new window.Event("change", { bubbles: true }));
+  assert.match(element("#savings-destination").textContent, /Ahorro/);
+  assert.ok(![...element("#savings-contribution-form [name=sourceAccountId]").options].some((option) => option.value === "6"));
   field("#savings-contribution-form", "amount", "500");
+  field("#savings-contribution-form", "sourceAccountId", "1");
   submit("#savings-contribution-form");
   await waitFor(() => element("#savings-goals").textContent.includes("Ahorrado: $500"));
+  assert.ok(requests.some((request) => request.path === "/api/metas/aportes" && request.method === "POST"
+    && request.body.sourceAccountId === 1 && request.body.destinationAccountId === 6));
   assert.match(element("#savings-goals").textContent, /5 %/);
   element('[aria-label="Eliminar aporte de $500 a Viaje"]').click();
   await waitFor(() => element("#savings-goals").textContent.includes("Ahorrado: $0"));
+  data.goals[0].accountId = null;
+  data.goals[0].accountName = null;
+  data.goals[0].contributions = [{ id: "7", date: "2020-06-01", amount: "20.00", note: null,
+    editable: true, needsAccounts: false, sourceAccountId: 6, destinationAccountId: 1,
+    sourceAccount: "Ahorro", destinationAccount: "Cuenta principal" }];
+  element("#refresh-savings").click();
+  await waitFor(() => element("#savings-goals .goal-account-form"));
+  assert.equal(element("#savings-contribution-form [name=goalId]").options.length, 1);
+  const goalAssignment = element("#savings-goals .goal-account-form");
+  goalAssignment.elements.accountId.value = "6";
+  goalAssignment.dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
+  await waitFor(() => element("#savings-goals").textContent.includes("Cuenta principal → Ahorro"));
+  assert.ok(requests.some((request) => request.path === "/api/metas" && request.method === "PUT"
+    && request.body.accountId === 6));
+  data.goals[0].saved = "10000.00";
+  data.goals[0].contributions = [{ id: "6", date: "2020-06-01", amount: "10000.00", note: null,
+    editable: true, needsAccounts: true }];
+  element("#refresh-savings").click();
+  await waitFor(() => element("#savings-archived").textContent.includes("Cuentas pendientes de asignación"));
+  assert.equal(element("#savings-contribution-form [name=goalId]").options.length, 1);
+  const assignment = element(".goal-account-form");
+  assignment.elements.sourceAccountId.value = "1";
+  assignment.dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
+  await waitFor(() => element("#savings-archived").textContent.includes("Cuenta principal → Ahorro"));
+  element('[aria-label="Eliminar meta Viaje"]').click();
+  await waitFor(() => !element("#savings-archived").textContent.includes("Viaje"));
+  assert.ok(requests.some((request) => request.path === "/api/metas" && request.method === "DELETE" && request.body.id === 4));
+  data.failExpenses = false;
+  element("#nav-dashboard").click();
+  assert.equal(element("#dashboard-view").hidden, false);
+  assert.equal(element("#savings-panel").hidden, true);
+  assert.equal(element("#nav-dashboard").getAttribute("aria-current"), "page");
+  submit("#month-form");
+  await waitFor(() => !element("#results").hidden && !element("#dashboard-content").hidden);
+
+  await waitFor(() => element('[aria-label="Desglose de gastos"]').textContent.includes("Fijos$1.200"));
+  assert.deepEqual([...element('[aria-label="Desglose de gastos"]').querySelectorAll(".expense-breakdown-row")]
+    .map((row) => row.textContent), ["Fijos$1.200", "Variables$0"]);
+
+  const viewedMonth = element("#month").value;
+  element("#month").value = "2020-03";
+  element("#nav-categories").click();
+  const beforeRename = requests.length;
+  const secondRename = element('[aria-label="Nombre de la categoría Mascotas y salud"]');
+  secondRename.value = "Mascotas nuevas";
+  secondRename.dispatchEvent(new window.Event("input", { bubbles: true }));
+  element("#save-categories").click();
+  await waitFor(() => element("#category-status").textContent === "Categorías actualizadas correctamente."
+    && !element("#create-category").disabled);
+  assert.ok(requests.slice(beforeRename).some((request) => request.path === "/api/gastos" && request.month === viewedMonth));
+  assert.ok(!requests.slice(beforeRename).some((request) => request.path === "/api/gastos" && request.month === "2020-03"));
+  element("#month").value = viewedMonth;
+  element("#nav-dashboard").click();
+
+  assert.equal(element("#recurring-form"), null);
+  assert.equal([...window.document.querySelectorAll("summary")]
+    .some((item) => item.textContent === "Suscripciones y pagos recurrentes"), false);
+  assert.ok(!requests.some((request) => request.path === "/api/recurrentes"));
+
+  data.failHistory = true;
+  submit("#month-form");
+  await waitFor(() => element("#movement-status").textContent === "Historial no disponible.");
+  assert.equal(element("#movements").children.length, 0);
+  data.failHistory = false;
+  submit("#month-form");
+  await waitFor(() => element("#movements").textContent.includes("Compra"));
+
+  data.failDashboard = true;
+  submit("#month-form");
+  await waitFor(() => element("#dashboard-status").textContent === "Dashboard no disponible.");
+  assert.equal(element("#dashboard-content").hidden, true);
+  element("#nav-movements").click();
+  setFilter("category", "2");
+  element('[aria-label^="Eliminar Compra del"]').click();
+  await waitFor(() => !element("#movements").textContent.includes("Compra")
+    && element("#movement-status").textContent === "Gasto eliminado correctamente.");
+  assert.ok(requests.some((request) => request.path === "/api/gastos" && request.method === "DELETE"
+    && request.body.id === "1"));
+  assert.equal(element('#movement-filter-form [name="category"]').value, "2");
+  assert.match(element("#movements-empty").textContent, /coincidan/);
 
   element("#logout-button").click();
   await waitFor(() => !element("#auth-panel").hidden);
   assert.equal(element("#auth-status").textContent, "Sesión cerrada.");
+  assert.equal(element('#movement-filter-form [name="category"]').value, "");
 });

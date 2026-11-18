@@ -22,6 +22,52 @@ def valid_amount(value, expected=False):
     return isinstance(value, str) and re.fullmatch(pattern, value) is not None
 
 
+@router.post("/api/categorias/lote")
+async def save_categories(request: Request, store: AuthStore = Depends(get_store),
+                          movements: MovementStore = Depends(get_movement_store),
+                          planning_store: PlanningStore = Depends(get_planning_store)):
+    user = await authenticated_user(request, store)
+    if not user:
+        return json_response({"error": "Inicia sesión para continuar."}, 401)
+    body, error = await read_json_body(request)
+    if error:
+        return error
+    changes = body.get("changes") if isinstance(body, dict) else None
+    if not isinstance(changes, list) or not changes:
+        return json_response({"error": "No hay cambios válidos para guardar."}, 400)
+    ids = set()
+    for change in changes:
+        if not (isinstance(change, dict) and valid_text(change.get("name"), True)
+                and type(change.get("active")) is bool and type(change.get("fixed")) is bool):
+            return json_response({"error": "Revisa los datos de las categorías."}, 400)
+        if "id" in change:
+            expected = change.get("expected")
+            identifier = change["id"]
+            if not (valid_option_id(identifier) and identifier not in ids and isinstance(expected, dict)
+                    and valid_text(expected.get("name"), True) and type(expected.get("active")) is bool
+                    and type(expected.get("fixed")) is bool):
+                return json_response({"error": "Revisa los datos de las categorías."}, 400)
+            ids.add(identifier)
+        if "budget" in change:
+            budget = change["budget"]
+            if not (isinstance(budget, dict) and valid_month(budget.get("month"))
+                    and change["active"]
+                    and (budget.get("amount") is None or valid_amount(budget.get("amount")))
+                    and (budget.get("expectedAmount") is None
+                         or valid_amount(budget.get("expectedAmount"), expected=True))
+                    and "amount" in budget and "expectedAmount" in budget
+                    and (budget["amount"] is not None or budget["expectedAmount"] is not None)
+                    and ("id" in change or budget["expectedAmount"] is None)):
+                return json_response({"error": "Revisa los presupuestos del mes."}, 400)
+    member, error = await member_for(user, movements, "La configuración personal requiere CLP y una sola persona activa.")
+    if error:
+        return error
+    categories = await run_in_threadpool(planning_store.write_categories, member, changes)
+    if categories is None:
+        return json_response({"error": "Las categorías o presupuestos cambiaron, o hay nombres duplicados. Revisa y vuelve a cargar antes de guardar."}, 409)
+    return json_response({"message": "Categorías actualizadas correctamente.", "categories": categories})
+
+
 @router.api_route("/api/categorias", methods=["GET", "POST", "PUT", "PATCH"])
 @router.api_route("/api/presupuestos", methods=["GET", "POST", "PUT"])
 async def planning(request: Request, store: AuthStore = Depends(get_store),

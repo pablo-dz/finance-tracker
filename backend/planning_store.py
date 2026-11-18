@@ -1,6 +1,12 @@
+from contextlib import nullcontext
+
 import psycopg
 
 from .store import connect
+
+
+class BatchConflict(Exception):
+    pass
 
 
 class PlanningStore:
@@ -60,8 +66,80 @@ class PlanningStore:
                     raise
                 return None
 
-    def budgets(self, member, month):
-        with self.connection_factory() as conn:
+    def write_categories(self, member, changes):
+        try:
+            with self.connection_factory() as conn:
+                person = conn.execute(
+                    """SELECT h.household_id FROM finance.household h
+                       JOIN finance.member m ON m.household_id = h.household_id
+                         AND m.member_id = %(member)s AND m.is_active
+                       WHERE h.household_id = %(household)s AND h.base_currency = 'CLP'
+                         AND h.name <> '[DEMO] Hogar de prueba'
+                         AND (SELECT count(*) FROM finance.member active
+                              WHERE active.household_id = h.household_id AND active.is_active) = 1
+                       FOR UPDATE OF h, m""",
+                    {"household": member["household_id"], "member": member["member_id"]},
+                ).fetchone()
+                if not person:
+                    return None
+                for change in changes:
+                    if "id" not in change:
+                        continue
+                    current = conn.execute(
+                        """SELECT name, is_active AS active, is_fixed AS fixed FROM finance.category
+                           WHERE category_id = %s AND household_id = %s AND kind = 'expense' FOR UPDATE""",
+                        (change["id"], member["household_id"]),
+                    ).fetchone()
+                    if (not current or current != change["expected"]
+                            or (not current["active"] and not change["active"]
+                                and current["name"] != change["name"].strip())):
+                        return None
+                for change in changes:
+                    if "id" in change:
+                        category_id = change["id"]
+                        conn.execute(
+                            """UPDATE finance.category SET name = %s, is_active = %s, is_fixed = %s
+                               WHERE category_id = %s AND household_id = %s""",
+                            (change["name"].strip(), change["active"], change["fixed"],
+                             change["id"], member["household_id"]),
+                        )
+                    else:
+                        category_id = conn.execute(
+                            """INSERT INTO finance.category (household_id, name, kind, is_active, is_fixed)
+                               VALUES (%s, %s, 'expense', %s, %s) RETURNING category_id""",
+                            (member["household_id"], change["name"].strip(), change["active"], change["fixed"]),
+                        ).fetchone()["category_id"]
+                    if "budget" in change:
+                        budget = change["budget"]
+                        params = {"household": member["household_id"], "member": member["member_id"],
+                                  "category": category_id, "month": budget["month"],
+                                  "amount": budget["amount"], "expected": budget["expectedAmount"]}
+                        if budget["expectedAmount"] is None:
+                            query = """INSERT INTO finance.budget (household_id, member_id, category_id, month_start, amount)
+                                       VALUES (%(household)s, %(member)s, %(category)s,
+                                               (%(month)s || '-01')::date, %(amount)s::numeric)
+                                       ON CONFLICT (household_id, (COALESCE(member_id, 0)), category_id, month_start)
+                                       DO NOTHING RETURNING budget_id"""
+                        else:
+                            operation = "DELETE FROM" if budget["amount"] is None else "UPDATE"
+                            assignment = "" if budget["amount"] is None else "SET amount = %(amount)s::numeric"
+                            query = f"""{operation} finance.budget {assignment}
+                                        WHERE household_id = %(household)s AND member_id = %(member)s
+                                          AND category_id = %(category)s AND month_start = (%(month)s || '-01')::date
+                                          AND amount = %(expected)s::numeric RETURNING budget_id"""
+                        if not conn.execute(query, params).fetchone():
+                            raise BatchConflict()
+                return conn.execute(
+                    """SELECT category_id AS id, name, is_fixed AS fixed, is_active AS active
+                       FROM finance.category WHERE household_id = %s AND kind = 'expense'
+                       ORDER BY is_active DESC, name, category_id""",
+                    (member["household_id"],),
+                ).fetchall()
+        except (psycopg.errors.UniqueViolation, BatchConflict):
+            return None
+
+    def budgets(self, member, month, connection=None):
+        with (nullcontext(connection) if connection is not None else self.connection_factory()) as conn:
             rows = conn.execute(
                 """WITH spent AS (
                      SELECT t.category_id, SUM(t.amount) AS amount

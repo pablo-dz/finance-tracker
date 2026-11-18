@@ -21,8 +21,10 @@ class MovementStore:
         member_id = member["member_id"]
         with self.connection_factory() as conn:
             accounts = conn.execute(
-                """SELECT a.account_id AS id, a.name, a.opening_balance::text AS "openingBalance",
-                   (a.opening_balance + COALESCE(SUM(CASE t.type WHEN 'income' THEN t.amount
+                """SELECT a.account_id AS id, a.name, a.type, a.opening_balance::text AS "openingBalance",
+                   a.opening_configured AS "openingConfigured", a.opening_date::text AS "openingDate",
+                   ((CASE WHEN a.opening_date IS NULL OR a.opening_date <= CURRENT_DATE
+                          THEN a.opening_balance ELSE 0 END) + COALESCE(SUM(CASE t.type WHEN 'income' THEN t.amount
                        WHEN 'expense' THEN -t.amount ELSE 0 END), 0)
                      + COALESCE((
                        SELECT SUM(CASE WHEN tr.source_account_id = a.account_id THEN -tr.amount ELSE tr.amount END)
@@ -30,6 +32,10 @@ class MovementStore:
                        WHERE tr.household_id = a.household_id AND tr.member_id = %(member)s
                          AND tr.tx_date <= CURRENT_DATE
                          AND (tr.source_account_id = a.account_id OR tr.destination_account_id = a.account_id)
+                     ), 0) + COALESCE((
+                       SELECT SUM(adj.amount) FROM finance.account_balance_adjustment adj
+                       WHERE adj.household_id = a.household_id AND adj.member_id = %(member)s
+                         AND adj.account_id = a.account_id AND adj.adjustment_date <= CURRENT_DATE
                      ), 0))::text AS balance
                    FROM finance.account a
                    LEFT JOIN finance.transactions t ON t.household_id = a.household_id AND t.account_id = a.account_id
@@ -97,28 +103,33 @@ class MovementStore:
                        'date', to_char(t.tx_date, 'YYYY-MM-DD'), 'type', t.type,
                        'description', COALESCE(NULLIF(BTRIM(t.merchant), ''), NULLIF(BTRIM(t.note), ''), 'Sin descripción'),
                        'amount', t.amount::text, 'merchant', t.merchant, 'accountId', t.account_id,
-                       'categoryId', t.category_id, 'category', c.name, 'account', a.name
+                       'categoryId', t.category_id, 'category', c.name, 'account', a.name,
+                       'editable', COALESCE(t.member_id = %(member)s, false)
                      ) AS movement, t.tx_date AS sort_date, t.transaction_id AS sort_id, t.type, t.amount
                      FROM finance.transactions t
                      JOIN finance.account a ON a.account_id = t.account_id AND a.household_id = t.household_id
                      LEFT JOIN finance.category c ON c.category_id = t.category_id AND c.household_id = t.household_id
-                     WHERE t.household_id = %(household)s AND t.member_id = %(member)s AND t.type IN ('income', 'expense')
-                       AND t.tx_date >= (%(month)s || '-01')::date
-                       AND t.tx_date < ((%(month)s || '-01')::date + interval '1 month')
+                     WHERE t.household_id = %(household)s AND t.type IN ('income', 'expense')
+                       AND (t.member_id = %(member)s OR (%(month)s::text IS NULL AND t.type = 'expense'))
+                       AND (%(month)s::text IS NULL OR (t.tx_date >= (%(month)s || '-01')::date
+                         AND t.tx_date < ((%(month)s || '-01')::date + interval '1 month')))
                      UNION ALL
                      SELECT json_build_object(
                        'id', 'transfer-' || tr.transfer_id::text, 'date', to_char(tr.tx_date, 'YYYY-MM-DD'),
                        'type', 'transfer', 'description', COALESCE(NULLIF(BTRIM(tr.note), ''), 'Transferencia'),
                        'amount', tr.amount::text, 'note', tr.note, 'sourceAccountId', tr.source_account_id,
                        'destinationAccountId', tr.destination_account_id, 'category', NULL,
-                       'account', source.name, 'destinationAccount', destination.name
+                       'account', source.name, 'destinationAccount', destination.name,
+                       'savingsContribution', EXISTS (
+                         SELECT 1 FROM finance.savings_contribution sc WHERE sc.transfer_id = tr.transfer_id
+                       )
                      ) AS movement, tr.tx_date AS sort_date, tr.transfer_id AS sort_id, 'transfer'::text AS type, tr.amount
                      FROM finance.account_transfer tr
                      JOIN finance.account source ON source.account_id = tr.source_account_id AND source.household_id = tr.household_id
                      JOIN finance.account destination ON destination.account_id = tr.destination_account_id AND destination.household_id = tr.household_id
                      WHERE tr.household_id = %(household)s AND tr.member_id = %(member)s
-                       AND tr.tx_date >= (%(month)s || '-01')::date
-                       AND tr.tx_date < ((%(month)s || '-01')::date + interval '1 month')
+                       AND (%(month)s::text IS NULL OR (tr.tx_date >= (%(month)s || '-01')::date
+                         AND tr.tx_date < ((%(month)s || '-01')::date + interval '1 month')))
                    ) entries""",
                 {"household": member["household_id"], "member": member["member_id"], "month": month},
             ).fetchone()
@@ -131,6 +142,7 @@ class MovementStore:
             "amount": body["amount"], "merchant": body["merchant"].strip(), "id": body.get("id"),
         }
         account = """a.household_id = h.household_id AND a.account_id = %(account)s
+                     AND a.opening_configured AND (a.opening_date IS NULL OR %(date)s::date >= a.opening_date)
                      AND a.is_active AND a.currency = 'CLP' AND (a.member_id IS NULL OR a.member_id = m.member_id)"""
         category = """c.household_id = h.household_id AND c.category_id = %(category)s AND c.kind = %(kind)s
                       AND (%(kind)s <> 'expense' OR c.is_active)"""
@@ -168,8 +180,10 @@ class MovementStore:
             "date": body["date"], "amount": body["amount"], "note": body.get("note", "").strip(), "id": body.get("id"),
         }
         source = """src.household_id = h.household_id AND src.account_id = %(source)s
+                    AND src.opening_configured AND (src.opening_date IS NULL OR %(date)s::date >= src.opening_date)
                     AND src.is_active AND src.currency = 'CLP' AND (src.member_id IS NULL OR src.member_id = m.member_id)"""
         destination = """dst.household_id = h.household_id AND dst.account_id = %(destination)s
+                         AND dst.opening_configured AND (dst.opening_date IS NULL OR %(date)s::date >= dst.opening_date)
                          AND dst.is_active AND dst.currency = src.currency
                          AND (dst.member_id IS NULL OR dst.member_id = m.member_id)"""
         common = """h.household_id = %(household)s AND h.base_currency = 'CLP' AND h.name <> '[DEMO] Hogar de prueba'
@@ -195,6 +209,7 @@ class MovementStore:
                           AND m.household_id = h.household_id AND m.member_id = %(member)s AND m.is_active
                           AND {source} AND {destination}
                           AND tr.transfer_id = %(id)s::bigint AND tr.household_id = h.household_id AND tr.member_id = m.member_id
+                          AND NOT EXISTS (SELECT 1 FROM finance.savings_contribution sc WHERE sc.transfer_id = tr.transfer_id)
                         RETURNING tr.transfer_id"""
         with self.connection_factory() as conn:
             return conn.execute(query, params).fetchone() is not None
@@ -204,7 +219,8 @@ class MovementStore:
             ("finance.account_transfer", "tr", "transfer_id") if kind == "transfer"
             else ("finance.transactions", "t", "transaction_id")
         )
-        type_filter = "" if kind == "transfer" else "AND t.type = %(kind)s"
+        type_filter = ("AND NOT EXISTS (SELECT 1 FROM finance.savings_contribution sc WHERE sc.transfer_id = tr.transfer_id)"
+                       if kind == "transfer" else "AND t.type = %(kind)s")
         query = f"""DELETE FROM {table} {alias}
                     USING finance.household h, finance.member m
                     WHERE h.household_id = %(household)s AND h.base_currency = 'CLP'

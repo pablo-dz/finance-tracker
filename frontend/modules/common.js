@@ -3,13 +3,9 @@ export const movementStatus = document.querySelector("#movement-status");
 export const expenseForm = document.querySelector("#expense-form");
 export const formMessage = document.querySelector("#form-message");
 export const saveButton = document.querySelector("#save-expense");
-export const budgetPanel = document.querySelector("#budget-panel");
-export const budgetForm = document.querySelector("#budget-form");
-export const budgetFormMessage = document.querySelector("#budget-form-message");
 export const incomeFormMessage = document.querySelector("#income-form-message");
 export const transferFormMessage = document.querySelector("#transfer-form-message");
 const formatter = new Intl.NumberFormat("es-CL");
-export const reportPeriod = document.querySelector("#report-period");
 const labels = {
   Rent: "Arriendo", Utilities: "Servicios", Groceries: "Supermercado",
   Transport: "Transporte", "Dining out": "Comidas fuera", Subscriptions: "Suscripciones",
@@ -41,6 +37,4 @@ export const state = {
   budgetRequest: 0,
   budgetMonth: null,
   displayedBudgetMonth: null,
-  budgetOptionsAvailable: false,
-  reportRequest: 0,
 };

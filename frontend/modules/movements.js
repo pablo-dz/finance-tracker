@@ -1,11 +1,12 @@
 import {
   monthInput, movementStatus, expenseForm, formMessage,
-  saveButton, budgetForm, budgetFormMessage, incomeFormMessage,
+  saveButton, incomeFormMessage,
   transferFormMessage, displayName, todayText, formatMoney,
   state,
-} from "./common.js";
-import { loadExpenses } from "./expenses.js";
-import { updateBudgetForm } from "./planning.js";
+} from "./common.js?v=27";
+import { deleteExpense, editExpense, loadExpenses } from "./expenses.js?v=27";
+import { selectMovementMonth } from "./planning.js?v=27";
+import { refreshDashboard } from "./analytics.js?v=27";
 
 const incomeForm = document.querySelector("#income-form");
 const saveIncomeButton = document.querySelector("#save-income");
@@ -14,21 +15,100 @@ const transferForm = document.querySelector("#transfer-form");
 const saveTransferButton = document.querySelector("#save-transfer");
 const cancelTransferEditButton = document.querySelector("#cancel-transfer-edit");
 const openingBalanceForm = document.querySelector("#opening-balance-form");
+const accountForm = document.querySelector("#account-form");
+const accountFormMessage = document.querySelector("#account-form-message");
 const openingBalanceMessage = document.querySelector("#opening-balance-message");
 const saveOpeningBalanceButton = document.querySelector("#save-opening-balance");
+const adjustmentForm = document.querySelector("#balance-adjustment-form");
+const adjustmentMessage = document.querySelector("#balance-adjustment-message");
+const saveAdjustmentButton = document.querySelector("#save-balance-adjustment");
+const adjustmentList = document.querySelector("#balance-adjustments");
+const adjustmentStatus = document.querySelector("#adjustments-status");
 const accountList = document.querySelector("#accounts");
 const accountStatus = document.querySelector("#accounts-status");
-const incomeMovements = document.querySelector("#income-movements");
-const incomeMovementsEmpty = document.querySelector("#income-movements-empty");
+const movements = document.querySelector("#movements");
+const movementsEmpty = document.querySelector("#movements-empty");
+const transferMovements = document.querySelector("#transfer-movements");
+const transferMovementsEmpty = document.querySelector("#transfer-movements-empty");
+const filterForm = document.querySelector("#movement-filter-form");
+const filterStatus = document.querySelector("#movement-filter-status");
 
 let accounts = [];
-let openingBalanceExpected = null;
 let savingIncome = false;
 let savingTransfer = false;
 let editingIncomeId = null;
 let editingTransferId = null;
 let savingOpeningBalance = false;
+let savingAccount = false;
+let savingAdjustment = false;
 let incomeOptionsAvailable = false;
+let historyRequest = 0;
+let historyRows = null;
+
+export function clearMovementHistory() {
+  ++historyRequest;
+  historyRows = null;
+  filterForm.reset();
+  filterForm.elements.category.replaceChildren(new Option("Todas las categorías", ""));
+  filterForm.elements.account.replaceChildren(new Option("Todas las cuentas", ""));
+  movements.replaceChildren();
+  transferMovements.replaceChildren();
+  movementsEmpty.hidden = true;
+  transferMovementsEmpty.hidden = true;
+  movementStatus.textContent = "";
+  filterStatus.textContent = "";
+}
+
+function updateFilterOptions(select, entries, placeholder) {
+  const selected = select.value;
+  const selectedLabel = select.selectedOptions[0]?.textContent;
+  if (selected && !entries.has(selected)) entries.set(selected, selectedLabel);
+  select.replaceChildren(new Option(placeholder, ""));
+  for (const [value, label] of [...entries].sort((a, b) => a[1].localeCompare(b[1], "es"))) {
+    select.append(new Option(label, value));
+  }
+  select.value = selected;
+}
+
+function updateMovementFilters(rows) {
+  const categories = new Map();
+  const accounts = new Map();
+  for (const row of rows) {
+    if (row.type !== "transfer") {
+      categories.set(row.categoryId == null ? "uncategorized" : String(row.categoryId),
+        row.category ? displayName(row.category) : "Sin categoría");
+      if (row.accountId != null) accounts.set(String(row.accountId), row.account);
+    } else {
+      if (row.sourceAccountId != null) accounts.set(String(row.sourceAccountId), row.account);
+      if (row.destinationAccountId != null) accounts.set(String(row.destinationAccountId), row.destinationAccount);
+    }
+  }
+  updateFilterOptions(filterForm.elements.category, categories, "Todas las categorías");
+  updateFilterOptions(filterForm.elements.account, accounts, "Todas las cuentas");
+}
+
+function searchText(value) {
+  return value.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLocaleLowerCase("es");
+}
+
+function matchesFilters(movement) {
+  const { from, to, type, category, description, account } = filterForm.elements;
+  if ((from.value && movement.date < from.value) || (to.value && movement.date > to.value)) return false;
+  if (type.value && movement.type !== type.value) return false;
+  if (category.value && (movement.type === "transfer"
+      || (movement.categoryId == null ? "uncategorized" : String(movement.categoryId)) !== category.value)) return false;
+  if (description.value.trim() && !searchText(movement.description).includes(searchText(description.value.trim()))) return false;
+  if (account.value && ![movement.accountId, movement.sourceAccountId, movement.destinationAccountId]
+    .some((id) => id != null && String(id) === account.value)) return false;
+  return true;
+}
+
+filterForm.addEventListener("submit", (event) => event.preventDefault());
+filterForm.addEventListener("input", renderMovementHistory);
+document.querySelector("#clear-movement-filters").addEventListener("click", () => {
+  filterForm.reset();
+  renderMovementHistory();
+});
 
 export function resetIncomeForm() {
   editingIncomeId = null;
@@ -57,27 +137,25 @@ function renderAccounts(values) {
     const balance = document.createElement("strong");
     item.className = "account-item";
     name.textContent = account.name;
-    balance.textContent = formatMoney(account.balance);
+    balance.textContent = account.openingConfigured ? formatMoney(account.balance) : "Saldo inicial pendiente";
     item.append(name, balance);
     accountList.append(item);
   }
 
-  const selected = openingBalanceForm.elements.accountId.value;
-  const accountSelect = openingBalanceForm.elements.accountId;
-  accountSelect.replaceChildren(new Option("Selecciona una cuenta", ""));
-  for (const account of accounts) {
-    accountSelect.append(new Option(account.name, String(account.id)));
+  for (const [form, available] of [
+    [openingBalanceForm, accounts.filter((account) => !account.openingConfigured)],
+    [adjustmentForm, accounts.filter((account) => account.openingConfigured)],
+  ]) {
+    const select = form.elements.accountId;
+    const selected = select.value;
+    select.replaceChildren(new Option("Selecciona una cuenta", ""));
+    for (const account of available) select.append(new Option(account.name, String(account.id)));
+    if (available.some((account) => String(account.id) === selected)) select.value = selected;
+    else if (available.length === 1) select.value = String(available[0].id);
   }
-  const selectedAccount = accounts.find((account) => String(account.id) === selected) ?? accounts[0];
-  if (selectedAccount) {
-    accountSelect.value = String(selectedAccount.id);
-    openingBalanceExpected = selectedAccount.openingBalance;
-    openingBalanceForm.elements.amount.value = selectedAccount.openingBalance;
-  } else {
-    openingBalanceExpected = null;
-    openingBalanceForm.elements.amount.value = "";
-  }
-  saveOpeningBalanceButton.disabled = !accounts.length || savingOpeningBalance;
+  openingBalanceForm.hidden = !accounts.some((account) => !account.openingConfigured);
+  saveOpeningBalanceButton.disabled = openingBalanceForm.hidden || savingOpeningBalance;
+  saveAdjustmentButton.disabled = !accounts.some((account) => account.openingConfigured) || savingAdjustment;
   saveTransferButton.disabled = accounts.length < 2 || savingTransfer;
 }
 
@@ -93,60 +171,119 @@ export async function refreshAccounts() {
   }
 }
 
-export async function loadMovements(month) {
+export async function loadMovementHistory() {
+  const requestId = ++historyRequest;
+  historyRows = null;
+  movements.replaceChildren();
+  transferMovements.replaceChildren();
+  movementsEmpty.hidden = true;
+  transferMovementsEmpty.hidden = true;
+  movementStatus.textContent = "Cargando movimientos...";
   try {
-    const response = await fetch(`/api/movimientos?mes=${encodeURIComponent(month)}`);
+    const response = await fetch("/api/movimientos?todos=1");
     const data = await response.json();
-    if (!response.ok) throw new Error(data.error || "No fue posible consultar los movimientos.");
-    document.querySelector("#income-total").textContent = formatMoney(data.incomeTotal);
-    incomeMovements.replaceChildren();
-    const otherMovements = data.movements.filter((movement) => movement.type !== "expense");
-    for (const movement of otherMovements) {
-      const item = document.createElement("li");
-      const detail = document.createElement("div");
-      const description = document.createElement("strong");
-      const metadata = document.createElement("div");
-      const amount = document.createElement("strong");
-      const actions = document.createElement("div");
+    if (requestId !== historyRequest) return false;
+    if (!response.ok) throw new Error(data.error || "No fue posible consultar el historial de movimientos.");
+    historyRows = data.movements;
+    updateMovementFilters(historyRows);
+    renderMovementHistory();
+    movementStatus.textContent = "";
+    return true;
+  } catch (error) {
+    if (requestId !== historyRequest) return false;
+    movementStatus.textContent = error instanceof Error ? error.message : "No fue posible consultar el historial de movimientos.";
+    return false;
+  }
+}
+
+function renderMovementHistory() {
+  movements.replaceChildren();
+  transferMovements.replaceChildren();
+  movementsEmpty.hidden = true;
+  transferMovementsEmpty.hidden = true;
+  const { from, to } = filterForm.elements;
+  if (from.value && to.value && from.value > to.value) {
+    filterStatus.textContent = "La fecha inicial no puede ser posterior a la fecha final.";
+    return;
+  }
+  filterStatus.textContent = "";
+  if (historyRows === null) return;
+  let transactionCount = 0;
+  let transferCount = 0;
+  for (const movement of historyRows.filter(matchesFilters)) {
+    const isExpense = movement.type === "expense";
+    const isTransfer = movement.type === "transfer";
+    const item = document.createElement("li");
+    const detail = document.createElement("div");
+    const description = document.createElement("strong");
+    const metadata = document.createElement("div");
+    const amount = document.createElement("strong");
+    const actions = document.createElement("div");
+    item.className = "movement";
+    detail.className = "movement-detail";
+    description.textContent = movement.description;
+    metadata.className = "movement-meta";
+    const date = movement.date.split("-").reverse().join("/");
+    const type = isTransfer ? movement.savingsContribution ? "Aporte a meta" : "Transferencia" : isExpense ? "Egreso" : "Ingreso";
+    const account = movement.destinationAccount
+      ? `${movement.account} → ${movement.destinationAccount}`
+      : movement.account;
+    const category = movement.category ? ` · ${displayName(movement.category)}` : "";
+    metadata.textContent = `${date} · ${type} · ${account}${category}`;
+    detail.append(description, metadata);
+    if (!isTransfer) {
+      const arrow = document.createElement("span");
+      arrow.textContent = isExpense ? "↓" : "↑";
+      arrow.setAttribute("aria-hidden", "true");
+      amount.append(arrow, document.createTextNode(` ${isExpense ? "−" : "+"}${formatMoney(movement.amount)}`));
+      amount.className = isExpense ? "movement-amount expense" : "movement-amount income";
+    } else {
+      amount.textContent = formatMoney(movement.amount);
+      amount.className = "movement-amount";
+    }
+    actions.className = "movement-actions";
+    actions.append(amount);
+    if ((isTransfer && !movement.savingsContribution) || (!isTransfer && movement.editable)) {
       const edit = document.createElement("button");
       const remove = document.createElement("button");
-      item.className = "other-movement";
-      description.textContent = movement.description;
-      metadata.className = "other-movement-meta";
-      const date = movement.date.split("-").reverse().join("/");
-      const type = movement.type === "income" ? "Ingreso" : "Transferencia";
-      const account = movement.destinationAccount
-        ? `${movement.account} → ${movement.destinationAccount}`
-        : movement.account;
-      const category = movement.category ? ` · ${displayName(movement.category)}` : "";
-      metadata.textContent = `${date} · ${type} · ${account}${category}`;
-      detail.append(description, metadata);
-      amount.textContent = formatMoney(movement.amount);
-      actions.className = "movement-actions";
-      actions.append(amount);
       edit.type = "button";
       edit.className = "edit-button";
       edit.textContent = "Editar";
-      edit.setAttribute("aria-label", `Editar ${type.toLowerCase()} ${movement.description}`);
-      edit.addEventListener("click", () => editOtherMovement(movement));
+      edit.setAttribute("aria-label", isExpense ? `Editar ${movement.description}` : `Editar ${type.toLowerCase()} ${movement.description}`);
+      const expense = { ...movement, id: movement.id.slice("transaction-".length), category: movement.category ?? "Sin categoría" };
+      edit.addEventListener("click", () => isExpense ? editExpense(expense) : editOtherMovement(movement));
       actions.append(edit);
       remove.type = "button";
       remove.className = "delete-button";
       remove.textContent = "Eliminar";
-      remove.setAttribute("aria-label", `Eliminar ${type.toLowerCase()} ${movement.description}`);
-      remove.addEventListener("click", () => deleteOtherMovement(movement));
+      remove.setAttribute("aria-label", isExpense
+        ? `Eliminar ${movement.description} del ${date} por ${formatMoney(movement.amount)}`
+        : `Eliminar ${type.toLowerCase()} ${movement.description}`);
+      remove.addEventListener("click", () => isExpense ? deleteExpense(expense, remove) : deleteOtherMovement(movement));
       actions.append(remove);
-      item.append(detail, actions);
-      incomeMovements.append(item);
     }
-    incomeMovementsEmpty.hidden = otherMovements.length !== 0;
-  } catch (error) {
-    movementStatus.textContent = error instanceof Error ? error.message : "No fue posible consultar los movimientos.";
+    item.append(detail, actions);
+    if (isTransfer) {
+      transferMovements.append(item);
+      transferCount++;
+    } else {
+      movements.append(item);
+      transactionCount++;
+    }
   }
+  movementsEmpty.hidden = transactionCount !== 0;
+  transferMovementsEmpty.hidden = transferCount !== 0;
+  const filtered = [...filterForm.elements].some((element) => element.name && element.value.trim());
+  movementsEmpty.textContent = filtered ? "No hay ingresos ni egresos que coincidan con los filtros."
+    : "No hay ingresos ni egresos registrados.";
+  transferMovementsEmpty.textContent = filtered ? "No hay transferencias que coincidan con los filtros."
+    : "No hay transferencias registradas.";
 }
 
 function editOtherMovement(movement) {
   const isIncome = movement.type === "income";
+  const registration = document.querySelector(isIncome ? "#income-registration" : "#transfer-registration");
+  registration.open = true;
   const formElement = isIncome ? incomeForm : transferForm;
   const formStatus = isIncome ? incomeFormMessage : transferFormMessage;
   if ((isIncome ? saveIncomeButton : saveTransferButton).disabled) {
@@ -187,7 +324,7 @@ function editOtherMovement(movement) {
       ? "Editando una transferencia."
       : "Selecciona cuentas de origen y destino disponibles.";
   }
-  document.querySelector(isIncome ? "#income-registration" : "#transfer-registration").scrollIntoView({ behavior: "smooth" });
+  registration.scrollIntoView({ behavior: "smooth" });
   formElement.elements[isIncome ? "merchant" : "amount"].focus();
 }
 
@@ -226,6 +363,8 @@ async function deleteOtherMovement(movement) {
 
 export async function loadOptions() {
   try {
+    adjustmentList.replaceChildren();
+    adjustmentStatus.textContent = "Cargando ajustes...";
     const response = await fetch("/api/opciones");
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || "No fue posible cargar el formulario.");
@@ -236,7 +375,6 @@ export async function loadOptions() {
       [incomeForm.elements.categoryId, data.incomeCategories],
       [transferForm.elements.sourceAccountId, data.accounts],
       [transferForm.elements.destinationAccountId, data.accounts],
-      [budgetForm.elements.categoryId, data.categories],
     ]) {
       const selectedValue = select.value;
       const placeholder = select.options[0]?.textContent ?? "Selecciona una opción";
@@ -250,9 +388,8 @@ export async function loadOptions() {
       if (values.some((value) => String(value.id) === selectedValue)) select.value = selectedValue;
     }
     renderAccounts(data.accounts);
-    state.budgetOptionsAvailable = data.categories.length > 0;
+    await loadAdjustments();
     incomeOptionsAvailable = data.incomeCategories.length > 0;
-    updateBudgetForm();
     saveButton.disabled = state.saving || !data.accounts.length || !data.categories.length;
     saveIncomeButton.disabled = savingIncome || !data.accounts.length || !incomeOptionsAvailable;
     if (!data.accounts.length || !data.categories.length) {
@@ -263,24 +400,52 @@ export async function loadOptions() {
     }
     if (data.accounts.length < 2) {
       transferFormMessage.textContent = "Necesitas al menos dos cuentas activas en CLP para transferir dinero.";
+    } else if (transferFormMessage.textContent === "Necesitas al menos dos cuentas activas en CLP para transferir dinero.") {
+      transferFormMessage.textContent = "";
     }
     return true;
   } catch (error) {
     formMessage.textContent = error instanceof Error ? error.message : "No fue posible cargar el formulario.";
-    budgetFormMessage.textContent = "No fue posible cargar las categorías para configurar presupuestos.";
     return false;
   }
 }
 
-openingBalanceForm.elements.accountId.addEventListener("change", () => {
-  const account = accounts.find((item) => String(item.id) === openingBalanceForm.elements.accountId.value);
-  openingBalanceExpected = account?.openingBalance ?? null;
-  openingBalanceForm.elements.amount.value = account?.openingBalance ?? "";
+accountForm.elements.date.value = todayText;
+accountForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (savingAccount) return;
+  savingAccount = true;
+  const button = accountForm.querySelector("button");
+  button.disabled = true;
+  accountFormMessage.textContent = "Creando cuenta...";
+  try {
+    const values = new FormData(accountForm);
+    const response = await fetch("/api/cuentas", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: values.get("name"), type: values.get("type"),
+        amount: values.get("amount"), date: values.get("date") }),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "No fue posible crear la cuenta.");
+    accountForm.reset();
+    accountForm.elements.date.value = todayText;
+    const loaded = await loadOptions();
+    await refreshDashboard();
+    accountFormMessage.textContent = loaded ? "Cuenta creada correctamente."
+      : "Cuenta creada, pero no se pudo actualizar la lista. Recarga la página.";
+  } catch (error) {
+    accountFormMessage.textContent = error instanceof Error ? error.message : "No fue posible crear la cuenta.";
+  } finally {
+    savingAccount = false;
+    button.disabled = false;
+  }
 });
 
+openingBalanceForm.elements.date.value = todayText;
 openingBalanceForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  if (savingOpeningBalance || openingBalanceExpected === null) return;
+  if (savingOpeningBalance || !openingBalanceForm.elements.accountId.value) return;
   savingOpeningBalance = true;
   saveOpeningBalanceButton.disabled = true;
   openingBalanceMessage.textContent = "Guardando saldo inicial...";
@@ -291,18 +456,95 @@ openingBalanceForm.addEventListener("submit", async (event) => {
       body: JSON.stringify({
         accountId: Number(openingBalanceForm.elements.accountId.value),
         amount: openingBalanceForm.elements.amount.value,
-        expectedAmount: openingBalanceExpected,
+        date: openingBalanceForm.elements.date.value,
       }),
     });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || "No fue posible guardar el saldo inicial.");
-    openingBalanceMessage.textContent = "Saldo inicial actualizado correctamente.";
+    openingBalanceMessage.textContent = "Saldo inicial configurado correctamente.";
     await refreshAccounts();
+    await refreshDashboard();
   } catch (error) {
     openingBalanceMessage.textContent = error instanceof Error ? error.message : "No fue posible guardar el saldo inicial.";
   } finally {
     savingOpeningBalance = false;
-    saveOpeningBalanceButton.disabled = !accounts.length;
+    saveOpeningBalanceButton.disabled = !accounts.some((account) => !account.openingConfigured);
+  }
+});
+
+async function loadAdjustments() {
+  try {
+    const response = await fetch("/api/cuentas/ajustes");
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "No fue posible consultar los ajustes.");
+    adjustmentList.replaceChildren();
+    for (const adjustment of data.adjustments) {
+      const item = document.createElement("li");
+      const description = document.createElement("span");
+      const remove = document.createElement("button");
+      description.textContent = `${adjustment.date.split("-").reverse().join("/")} · ${adjustment.account} · ${formatMoney(adjustment.amount)} · ${adjustment.reason}`;
+      remove.type = "button";
+      remove.className = "delete-button";
+      remove.textContent = "Eliminar";
+      remove.setAttribute("aria-label", `Eliminar ajuste ${adjustment.reason} de ${adjustment.account} del ${adjustment.date}`);
+      remove.addEventListener("click", async () => {
+        if (!confirm("¿Eliminar este ajuste de saldo? Esta acción no se puede deshacer.")) return;
+        remove.disabled = true;
+        try {
+          const result = await fetch("/api/cuentas/ajustes", {
+            method: "DELETE", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id: adjustment.id }),
+          });
+          const body = await result.json();
+          if (!result.ok) throw new Error(body.error || "No fue posible eliminar el ajuste.");
+          await refreshAccounts();
+          await refreshDashboard();
+          await loadAdjustments();
+          adjustmentMessage.textContent = body.message;
+        } catch (error) {
+          adjustmentStatus.textContent = error instanceof Error ? error.message : "No fue posible eliminar el ajuste.";
+          remove.disabled = false;
+        }
+      });
+      item.append(description, remove);
+      adjustmentList.append(item);
+    }
+    adjustmentStatus.textContent = data.adjustments.length ? "" : "No hay ajustes registrados.";
+  } catch (error) {
+    adjustmentStatus.textContent = error instanceof Error ? error.message : "No fue posible consultar los ajustes.";
+  }
+}
+
+adjustmentForm.elements.date.value = todayText;
+adjustmentForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (savingAdjustment) return;
+  savingAdjustment = true;
+  saveAdjustmentButton.disabled = true;
+  adjustmentMessage.textContent = "Guardando ajuste...";
+  try {
+    const response = await fetch("/api/cuentas/ajustes", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        accountId: Number(adjustmentForm.elements.accountId.value),
+        amount: adjustmentForm.elements.amount.value,
+        date: adjustmentForm.elements.date.value,
+        reason: adjustmentForm.elements.reason.value,
+      }),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "No fue posible guardar el ajuste.");
+    adjustmentForm.elements.amount.value = "";
+    adjustmentForm.elements.reason.value = "";
+    await refreshAccounts();
+    await refreshDashboard();
+    await loadAdjustments();
+    adjustmentMessage.textContent = data.message;
+  } catch (error) {
+    adjustmentMessage.textContent = error instanceof Error ? error.message : "No fue posible guardar el ajuste.";
+  } finally {
+    savingAdjustment = false;
+    saveAdjustmentButton.disabled = !accounts.some((account) => account.openingConfigured);
   }
 });
 
@@ -340,8 +582,8 @@ incomeForm.addEventListener("submit", async (event) => {
     const date = values.get("date");
     resetIncomeForm();
     incomeFormMessage.textContent = isEditing ? "Ingreso actualizado correctamente." : "Ingreso registrado correctamente.";
-    monthInput.value = date.slice(0, 7);
-    await loadExpenses();
+    selectMovementMonth(date.slice(0, 7));
+    await loadExpenses(monthInput.value);
     await refreshAccounts();
   } catch (error) {
     incomeFormMessage.textContent = error instanceof Error ? error.message : "No fue posible guardar el ingreso.";
@@ -391,8 +633,8 @@ transferForm.addEventListener("submit", async (event) => {
     const date = values.get("date");
     resetTransferForm();
     transferFormMessage.textContent = isEditing ? "Transferencia actualizada correctamente." : "Transferencia registrada correctamente.";
-    monthInput.value = date.slice(0, 7);
-    await loadExpenses();
+    selectMovementMonth(date.slice(0, 7));
+    await loadExpenses(monthInput.value);
     await refreshAccounts();
   } catch (error) {
     transferFormMessage.textContent = error instanceof Error ? error.message : "No fue posible guardar la transferencia.";

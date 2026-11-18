@@ -12,6 +12,64 @@ from backend.app import app
 
 
 @unittest.skipUnless(os.environ.get("FINANCE_TEST_ADMIN_DATABASE"), "Set FINANCE_TEST_ADMIN_DATABASE to run PostgreSQL integration tests")
+class BalanceMigrationTest(unittest.TestCase):
+    def test_existing_account_and_movement_are_preserved(self):
+        admin = psycopg.connect(dbname=os.environ["FINANCE_TEST_ADMIN_DATABASE"], autocommit=True)
+        self.addCleanup(admin.close)
+        database = "finance_test_" + uuid4().hex
+        admin.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(database)))
+        self.addCleanup(lambda: admin.execute(sql.SQL("DROP DATABASE {}").format(sql.Identifier(database))))
+        with psycopg.connect(dbname=database) as conn:
+            for name in ("001_schema.sql", "004_account_balances_and_transfers.sql"):
+                conn.execute((Path("db/migrations") / name).read_text())
+            household = conn.execute("INSERT INTO finance.household (name) VALUES ('Personal') RETURNING household_id").fetchone()[0]
+            member = conn.execute("INSERT INTO finance.member (household_id, name) VALUES (%s, 'Yo') RETURNING member_id",
+                                  (household,)).fetchone()[0]
+            account = conn.execute(
+                """INSERT INTO finance.account (household_id, member_id, name, type, opening_balance)
+                   VALUES (%s, %s, 'Cuenta', 'checking', 125.50) RETURNING account_id""", (household, member),
+            ).fetchone()[0]
+            conn.execute(
+                """INSERT INTO finance.transactions (household_id, member_id, account_id, tx_date, amount, type)
+                   VALUES (%s, %s, %s, '2020-01-01', 25, 'expense')""", (household, member, account),
+            )
+            conn.execute(Path("db/migrations/009_dated_account_balances.sql").read_text())
+            row = conn.execute(
+                """SELECT opening_balance::text, opening_date, opening_configured FROM finance.account WHERE account_id = %s""",
+                (account,),
+            ).fetchone()
+            self.assertEqual(row, ("125.50", None, True))
+            self.assertEqual(conn.execute("SELECT count(*) FROM finance.transactions").fetchone()[0], 1)
+
+    def test_savings_migration_preserves_existing_contributions_without_moving_money(self):
+        admin = psycopg.connect(dbname=os.environ["FINANCE_TEST_ADMIN_DATABASE"], autocommit=True)
+        self.addCleanup(admin.close)
+        database = "finance_test_" + uuid4().hex
+        admin.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(database)))
+        self.addCleanup(lambda: admin.execute(sql.SQL("DROP DATABASE {}").format(sql.Identifier(database))))
+        with psycopg.connect(dbname=database) as conn:
+            for name in ("001_schema.sql", "004_account_balances_and_transfers.sql", "005_savings_goal_contributions.sql"):
+                conn.execute((Path("db/migrations") / name).read_text())
+            household = conn.execute("INSERT INTO finance.household (name) VALUES ('Personal') RETURNING household_id").fetchone()[0]
+            member = conn.execute("INSERT INTO finance.member (household_id, name) VALUES (%s, 'Yo') RETURNING member_id",
+                                  (household,)).fetchone()[0]
+            goal = conn.execute(
+                "INSERT INTO finance.savings_goal (household_id, name, target_amount) VALUES (%s, 'Meta', 100) RETURNING goal_id",
+                (household,),
+            ).fetchone()[0]
+            conn.execute(
+                """INSERT INTO finance.savings_contribution (household_id, member_id, goal_id, contributed_on, amount)
+                   VALUES (%s, %s, %s, '2020-01-01', 25)""", (household, member, goal),
+            )
+            conn.execute(Path("db/migrations/010_savings_contribution_transfers.sql").read_text())
+            conn.execute(Path("db/migrations/011_savings_goal_account.sql").read_text())
+            self.assertEqual(conn.execute("SELECT amount::text, transfer_id FROM finance.savings_contribution").fetchone(),
+                             ("25.00", None))
+            self.assertEqual(conn.execute("SELECT count(*) FROM finance.account_transfer").fetchone()[0], 0)
+            self.assertIsNone(conn.execute("SELECT account_id FROM finance.savings_goal").fetchone()[0])
+
+
+@unittest.skipUnless(os.environ.get("FINANCE_TEST_ADMIN_DATABASE"), "Set FINANCE_TEST_ADMIN_DATABASE to run PostgreSQL integration tests")
 class MovementIntegrationTest(unittest.TestCase):
     def setUp(self):
         admin = psycopg.connect(dbname=os.environ["FINANCE_TEST_ADMIN_DATABASE"], autocommit=True)
@@ -22,7 +80,8 @@ class MovementIntegrationTest(unittest.TestCase):
         with psycopg.connect(dbname=self.database) as conn:
             for migration in ("001_schema.sql", "004_account_balances_and_transfers.sql",
                               "005_savings_goal_contributions.sql", "006_personal_category_archiving.sql",
-                              "007_user_accounts.sql"):
+                              "007_user_accounts.sql", "008_recurring_payments.sql", "009_dated_account_balances.sql",
+                              "010_savings_contribution_transfers.sql", "011_savings_goal_account.sql"):
                 conn.execute((Path("db/migrations") / migration).read_text())
         env_patch = patch.dict(os.environ, {"PGDATABASE": self.database})
         env_patch.start()
@@ -50,9 +109,77 @@ class MovementIntegrationTest(unittest.TestCase):
                    VALUES (%s, %s, 'Ahorro', 'savings', 'CLP') RETURNING account_id""",
                 (household, member),
             ).fetchone()[0]
+            conn.execute("UPDATE finance.account SET opening_configured = true")
 
     def write(self, client, method, path, body, origin=None):
         return client.request(method, path, headers={"Origin": origin or self.origin}, json=body)
+
+    def test_dashboard_analytics_and_personal_recurring_payments(self):
+        options = self.client.get("/api/opciones").json()
+        other_options = self.other.get("/api/opciones").json()
+        account = next(a["id"] for a in options["accounts"] if a["name"] == "Cuenta principal")
+        category = options["categories"][0]["id"]
+        income_category = options["incomeCategories"][0]["id"]
+        expense = {"merchant": "Mercado", "amount": "1500", "date": "2020-06-02",
+                   "accountId": account, "categoryId": category}
+        income = {"merchant": "Sueldo", "amount": "3000", "date": "2020-06-03",
+                  "accountId": account, "categoryId": income_category}
+        self.assertEqual(self.write(self.client, "POST", "/api/gastos", expense).status_code, 201)
+        self.assertEqual(self.write(self.client, "POST", "/api/ingresos", income).status_code, 201)
+        self.assertEqual(self.write(self.client, "POST", "/api/ingresos",
+                                    {**income, "date": "2020-05-01", "amount": "1000"}).status_code, 201)
+        self.assertEqual(self.write(self.client, "POST", "/api/presupuestos",
+                                    {"month": "2020-06", "categoryId": category, "amount": "2000"}).status_code, 201)
+        self.assertEqual(self.write(self.client, "PATCH", "/api/dashboard/categorias",
+                                    {"id": category, "fixed": True}).status_code, 200)
+        self.assertEqual(self.write(self.other, "PATCH", "/api/dashboard/categorias",
+                                    {"id": category, "fixed": False}).status_code, 404)
+        self.assertEqual(self.write(self.other, "POST", "/api/gastos",
+                                    {**expense, "accountId": other_options["accounts"][0]["id"],
+                                     "categoryId": other_options["categories"][0]["id"]}).status_code, 201)
+        payment = {"name": "Suscripción", "amount": "12000.00", "frequency": "yearly"}
+        self.assertEqual(self.write(self.client, "POST", "/api/recurrentes", payment).status_code, 201)
+        item = self.client.get("/api/recurrentes").json()["payments"][0]
+        self.assertEqual(self.other.get("/api/recurrentes").json()["payments"], [])
+        self.assertEqual(self.write(self.other, "DELETE", "/api/recurrentes", {"id": item["id"]}).status_code, 404)
+        self.assertEqual(self.write(self.client, "PUT", "/api/recurrentes",
+                                    {**payment, "id": item["id"], "amount": "0"}).status_code, 400)
+        self.assertEqual(self.write(self.client, "PUT", "/api/recurrentes",
+                                    {**payment, "id": item["id"], "amount": "24000"}).status_code, 200)
+
+        response = self.client.get("/api/dashboard?mes=2020-06")
+        self.assertEqual(response.status_code, 200)
+        result = response.json()
+        self.assertEqual(result["current"],
+                         {"month": "2020-06", "income": "3000.00", "expenses": "1500.00",
+                          "saving": "1500.00", "savingRate": "50.00"})
+        self.assertEqual(result["previous"]["income"], "1000.00")
+        self.assertEqual(result["categories"][-1],
+                         {"month": "2020-06", "id": category, "name": options["categories"][0]["name"],
+                          "fixed": True, "amount": "1500.00"})
+        self.assertEqual(result["daily"], [{"day": 2, "budgeted": "1500.00", "unbudgeted": "0"}])
+        self.assertEqual(result["topExpenses"][0]["name"], "Mercado")
+        self.assertEqual(result["merchants"][0]["amount"], "1500.00")
+        self.assertEqual(result["balances"][-1]["balance"], "2500.00")
+        transfer = {"amount": "500.25", "date": "2020-06-04", "sourceAccountId": account,
+                    "destinationAccountId": self.second_account, "note": "Ahorro"}
+        self.assertEqual(self.write(self.client, "POST", "/api/transferencias", transfer).status_code, 201)
+        other_category = options["categories"][1]["id"]
+        self.assertEqual(self.write(self.client, "POST", "/api/gastos",
+                                    {**expense, "categoryId": other_category, "amount": "200",
+                                     "date": "2020-06-05"}).status_code, 201)
+        result = self.client.get("/api/dashboard?mes=2020-06").json()
+        self.assertEqual(result["current"]["saving"], "1300.00")
+        self.assertEqual(result["balances"][-1]["balance"], "2300.00")
+        self.assertEqual(result["balances"][-1]["accounts"], [
+            {"id": self.second_account, "name": "Ahorro", "balance": "500.25"},
+            {"id": account, "name": "Cuenta principal", "balance": "1799.75"},
+        ])
+        self.assertEqual(result["daily"][-1], {"day": 5, "budgeted": "0", "unbudgeted": "200.00"})
+        self.assertIsNone(next(row for row in result["budgets"] if row["categoryId"] == other_category)["budget"])
+        self.assertEqual(self.write(self.client, "DELETE", "/api/recurrentes", {"id": item["id"]}).status_code, 200)
+        self.assertEqual(self.client.get("/api/recurrentes").json()["payments"], [])
+        self.assertEqual(self.client.get("/api/dashboard?mes=2020-06&mes=2020-06").status_code, 400)
 
     def test_isolation_fractional_history_and_month_boundaries(self):
         options = self.client.get("/api/opciones").json()
@@ -102,7 +229,7 @@ class MovementIntegrationTest(unittest.TestCase):
         self.assertEqual(self.client.get("/api/reportes?mes=2020-06&meses=3").status_code, 409)
         self.assertEqual(self.client.get("/api/categorias").status_code, 409)
         self.assertEqual(self.write(self.client, "POST", "/api/metas",
-                                    {"name": "Viaje", "targetAmount": "100"}).status_code, 409)
+                                    {"name": "Viaje", "targetAmount": "100", "accountId": self.second_account}).status_code, 409)
         with psycopg.connect(dbname=self.database) as conn:
             conn.execute("UPDATE finance.member SET is_active = false WHERE household_id = %s", (household,))
         self.assertEqual(self.client.get("/api/opciones").status_code, 409)
@@ -114,23 +241,31 @@ class MovementIntegrationTest(unittest.TestCase):
         expense = {"merchant": "Compra", "amount": "1500", "date": "2020-06-02",
                    "accountId": account, "categoryId": options["categories"][0]["id"]}
         self.assertEqual(self.write(self.client, "POST", "/api/gastos", expense).status_code, 201)
-        balance = {"accountId": account, "amount": "2000.50", "expectedAmount": "0.00"}
-        self.assertEqual(self.write(self.client, "PUT", "/api/cuentas/saldo-inicial", balance).status_code, 200)
+        balance = {"accountId": account, "amount": "2000.50", "date": "2020-06-01"}
         self.assertEqual(self.write(self.client, "PUT", "/api/cuentas/saldo-inicial", balance).status_code, 409)
         self.assertEqual(self.write(self.client, "PUT", "/api/cuentas/saldo-inicial",
                                     {**balance, "accountId": foreign}).status_code, 409)
+        adjustment = {**balance, "date": "2020-06-03", "reason": "Conciliación"}
+        self.assertEqual(self.write(self.client, "POST", "/api/cuentas/ajustes", adjustment).status_code, 201)
+        self.assertEqual(self.write(self.other, "POST", "/api/cuentas/ajustes", adjustment).status_code, 409)
         self.assertEqual(self.write(self.client, "POST", "/api/metas",
-                                    {"name": " Viaje ", "targetAmount": "10000", "dueDate": "2021-01-01"}).status_code, 201)
+                                    {"name": " Viaje ", "targetAmount": "10000", "dueDate": "2021-01-01",
+                                     "accountId": self.second_account}).status_code, 201)
         goal = self.client.get("/api/metas").json()["goals"][0]["id"]
-        contribution = {"goalId": goal, "date": "2020-06-03", "amount": "500", "note": " Junio "}
-        self.assertEqual(self.write(self.other, "POST", "/api/metas/aportes", contribution).status_code, 404)
+        contribution = {"goalId": goal, "date": "2020-06-03", "amount": "500", "note": " Junio ",
+                        "sourceAccountId": account, "destinationAccountId": self.second_account}
+        self.assertEqual(self.write(self.other, "POST", "/api/metas/aportes", contribution).status_code, 409)
         self.assertEqual(self.write(self.client, "POST", "/api/metas/aportes", contribution).status_code, 201)
         goal_data = self.client.get("/api/metas").json()["goals"][0]
         contribution_id = goal_data["contributions"][0]["id"]
         self.assertEqual(goal_data, {"id": goal, "name": "Viaje", "targetAmount": "10000.00",
-                                     "dueDate": "2021-01-01", "saved": "500.00",
+                                     "dueDate": "2021-01-01", "accountId": self.second_account, "accountName": "Ahorro",
+                                     "saved": "500.00",
                                      "contributions": [{"id": contribution_id, "date": "2020-06-03",
-                                                        "amount": "500.00", "note": "Junio", "editable": True}]})
+                                                        "amount": "500.00", "note": "Junio", "editable": True,
+                                                        "sourceAccount": "Cuenta principal", "destinationAccount": "Ahorro",
+                                                        "sourceAccountId": account, "destinationAccountId": self.second_account,
+                                                        "needsAccounts": False}]})
         report = self.client.get("/api/reportes?mes=2020-06&meses=3").json()
         self.assertEqual([m["total"] for m in report["monthly"]], ["0", "0", "1500.00"])
         self.assertEqual(report["average"], "500.00")
@@ -138,12 +273,214 @@ class MovementIntegrationTest(unittest.TestCase):
         self.assertEqual(self.client.get("/api/reportes?mes=2020-06&mes=2020-06&meses=3").status_code, 400)
 
         account_after = next(a for a in self.client.get("/api/opciones").json()["accounts"] if a["id"] == account)
-        self.assertEqual(account_after["openingBalance"], "2000.50")
-        self.assertEqual(account_after["balance"], "500.50")
+        self.assertEqual(account_after["openingBalance"], "0.00")
+        self.assertEqual(account_after["balance"], "0.50")
         self.assertEqual(self.write(self.other, "DELETE", "/api/metas/aportes", {"id": contribution_id}).status_code, 404)
         self.assertEqual(self.write(self.client, "DELETE", "/api/metas/aportes", {"id": contribution_id}).status_code, 200)
         self.assertEqual(self.write(self.client, "DELETE", "/api/metas/aportes", {"id": contribution_id}).status_code, 404)
         self.assertEqual(self.client.get("/api/metas").json()["goals"][0]["saved"], "0")
+        self.assertEqual(next(a for a in self.client.get("/api/opciones").json()["accounts"]
+                              if a["id"] == account)["balance"], "500.50")
+
+    def test_dated_opening_balance_and_adjustments(self):
+        options = self.client.get("/api/opciones").json()
+        account = next(a["id"] for a in options["accounts"] if a["name"] == "Cuenta principal")
+        category = options["incomeCategories"][0]["id"]
+        with psycopg.connect(dbname=self.database) as conn:
+            conn.execute("UPDATE finance.account SET opening_configured = false WHERE account_id = %s", (account,))
+        income = {"merchant": "Sueldo", "amount": "50", "date": "2020-06-01",
+                  "accountId": account, "categoryId": category}
+        self.assertEqual(self.write(self.client, "POST", "/api/ingresos", income).status_code, 400)
+        opening = {"accountId": account, "amount": "100", "date": "2020-06-02"}
+        self.assertEqual(self.write(self.client, "PUT", "/api/cuentas/saldo-inicial", opening).status_code, 200)
+        self.assertEqual(self.write(self.client, "PUT", "/api/cuentas/saldo-inicial", opening).status_code, 409)
+        self.assertEqual(self.write(self.client, "POST", "/api/ingresos", income).status_code, 400)
+        self.assertEqual(self.write(self.client, "POST", "/api/ingresos",
+                                    {**income, "date": "2020-06-02"}).status_code, 201)
+        transfer = {"amount": "10", "date": "2020-06-01", "sourceAccountId": account,
+                    "destinationAccountId": self.second_account}
+        self.assertEqual(self.write(self.client, "POST", "/api/transferencias", transfer).status_code, 400)
+        adjustment = {"accountId": account, "amount": "-25.50", "date": "2020-07-01", "reason": "Corrección"}
+        self.assertEqual(self.write(self.client, "POST", "/api/cuentas/ajustes",
+                                    {**adjustment, "date": "2020-06-01"}).status_code, 409)
+        self.assertEqual(self.write(self.client, "POST", "/api/cuentas/ajustes", adjustment).status_code, 201)
+        rows = self.client.get("/api/cuentas/ajustes").json()["adjustments"]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(self.other.get("/api/cuentas/ajustes").json()["adjustments"], [])
+        self.assertEqual(self.write(self.other, "DELETE", "/api/cuentas/ajustes", {"id": rows[0]["id"]}).status_code, 404)
+        result = self.client.get("/api/dashboard?mes=2020-07").json()
+        self.assertEqual([row["balance"] for row in result["balances"][-3:]], ["0.00", "150.00", "124.50"])
+        self.assertIsNone(next(a for a in result["balances"][-3]["accounts"] if a["id"] == account)["balance"])
+        self.assertEqual(next(a for a in result["balances"][-2]["accounts"] if a["id"] == account)["balance"], "150.00")
+        self.assertEqual(next(a for a in result["balances"][-1]["accounts"] if a["id"] == account)["balance"], "124.50")
+        self.assertEqual(result["current"]["income"], "0")
+        current = next(a for a in self.client.get("/api/opciones").json()["accounts"] if a["id"] == account)
+        self.assertEqual(current["balance"], "124.50")
+        self.assertEqual(self.write(self.client, "DELETE", "/api/cuentas/ajustes", {"id": rows[0]["id"]}).status_code, 200)
+        self.assertEqual(self.write(self.client, "DELETE", "/api/cuentas/ajustes", {"id": rows[0]["id"]}).status_code, 404)
+
+    def test_savings_transfers_legacy_assignment_and_deletion(self):
+        options = self.client.get("/api/opciones").json()
+        source = next(a["id"] for a in options["accounts"] if a["name"] == "Cuenta principal")
+        destination = self.second_account
+        self.assertEqual(self.write(self.client, "POST", "/api/metas",
+                                    {"name": "Viaje", "targetAmount": "100", "accountId": destination}).status_code, 201)
+        goal = self.client.get("/api/metas").json()["goals"][0]["id"]
+        with psycopg.connect(dbname=self.database) as conn:
+            household, member = conn.execute(
+                "SELECT household_id, member_id FROM finance.account WHERE account_id = %s", (source,),
+            ).fetchone()
+            legacy = conn.execute(
+                """INSERT INTO finance.savings_contribution (household_id, member_id, goal_id, contributed_on, amount)
+                   VALUES (%s, %s, %s, '2020-06-01', 40) RETURNING contribution_id""",
+                (household, member, goal),
+            ).fetchone()[0]
+        old = self.client.get("/api/metas").json()["goals"][0]["contributions"][0]
+        self.assertTrue(old["needsAccounts"])
+        assignment = {"id": str(legacy), "sourceAccountId": source, "destinationAccountId": destination}
+        self.assertEqual(self.write(self.other, "PUT", "/api/metas/aportes", assignment).status_code, 409)
+        self.assertEqual(self.write(self.client, "PUT", "/api/metas/aportes",
+                                    {**assignment, "destinationAccountId": source}).status_code, 400)
+        with psycopg.connect(dbname=self.database) as conn:
+            conn.execute("UPDATE finance.account SET opening_date = '2020-06-02' WHERE account_id = %s", (source,))
+        self.assertEqual(self.write(self.client, "PUT", "/api/metas/aportes", assignment).status_code, 409)
+        with psycopg.connect(dbname=self.database) as conn:
+            conn.execute("UPDATE finance.account SET opening_date = NULL WHERE account_id = %s", (source,))
+        self.assertEqual(self.write(self.client, "PUT", "/api/metas/aportes", assignment).status_code, 200)
+        self.assertEqual(self.write(self.client, "PUT", "/api/metas/aportes", assignment).status_code, 409)
+        contribution = {"goalId": goal, "date": "2020-06-02", "amount": "60",
+                        "sourceAccountId": source, "destinationAccountId": destination}
+        self.assertEqual(self.write(self.client, "POST", "/api/metas/aportes", contribution).status_code, 201)
+        self.assertEqual(self.write(self.client, "POST", "/api/metas/aportes", contribution).status_code, 409)
+        balances = {a["id"]: a["balance"] for a in self.client.get("/api/opciones").json()["accounts"]}
+        self.assertEqual((balances[source], balances[destination]), ("-100.00", "100.00"))
+        transfers = [m for m in self.client.get("/api/movimientos?todos=1").json()["movements"]
+                     if m["type"] == "transfer"]
+        self.assertEqual(len(transfers), 2)
+        self.assertTrue(all(m["savingsContribution"] for m in transfers))
+        transfer_id = transfers[0]["id"].split("-")[1]
+        self.assertNotEqual(self.write(self.client, "DELETE", "/api/transferencias", {"id": transfer_id}).status_code, 200)
+        self.assertNotEqual(self.write(self.client, "PUT", "/api/transferencias",
+                                       {**contribution, "id": transfer_id, "amount": "20"}).status_code, 200)
+        self.assertEqual(self.write(self.other, "DELETE", "/api/metas", {"id": goal}).status_code, 404)
+        self.assertEqual(self.write(self.client, "DELETE", "/api/metas", {"id": goal}).status_code, 200)
+        self.assertEqual(self.client.get("/api/metas").json()["goals"], [])
+        balances = {a["id"]: a["balance"] for a in self.client.get("/api/opciones").json()["accounts"]}
+        self.assertEqual((balances[source], balances[destination]), ("0.00", "0.00"))
+        self.assertEqual(self.client.get("/api/movimientos?todos=1").json()["movements"], [])
+
+    def test_future_savings_contributions_do_not_complete_goal_or_change_balances_early(self):
+        source = next(a["id"] for a in self.client.get("/api/opciones").json()["accounts"]
+                      if a["name"] == "Cuenta principal")
+        self.assertEqual(self.write(self.client, "POST", "/api/metas",
+                                    {"name": "Futuro", "targetAmount": "100", "accountId": self.second_account}).status_code, 201)
+        goal = self.client.get("/api/metas").json()["goals"][0]["id"]
+        contribution = {"goalId": goal, "date": "2999-01-01", "amount": "100",
+                        "sourceAccountId": source, "destinationAccountId": self.second_account}
+        self.assertEqual(self.write(self.client, "POST", "/api/metas/aportes", contribution).status_code, 201)
+        goal_data = self.client.get("/api/metas").json()["goals"][0]
+        self.assertEqual(goal_data["saved"], "0")
+        self.assertEqual(len(goal_data["contributions"]), 1)
+        balances = {a["id"]: a["balance"] for a in self.client.get("/api/opciones").json()["accounts"]}
+        self.assertEqual((balances[source], balances[self.second_account]), ("0.00", "0.00"))
+
+    def test_existing_goal_assignment_reverses_only_inverted_transfers(self):
+        source = next(a["id"] for a in self.client.get("/api/opciones").json()["accounts"]
+                      if a["name"] == "Cuenta principal")
+        with psycopg.connect(dbname=self.database) as conn:
+            household, member = conn.execute(
+                "SELECT household_id, member_id FROM finance.account WHERE account_id = %s", (source,),
+            ).fetchone()
+            goal = conn.execute(
+                "INSERT INTO finance.savings_goal (household_id, name, target_amount) VALUES (%s, 'Viaje', 500) RETURNING goal_id",
+                (household,),
+            ).fetchone()[0]
+            for origin, destination, amount in ((self.second_account, source, 120), (source, self.second_account, 30)):
+                transfer = conn.execute(
+                    """INSERT INTO finance.account_transfer
+                       (household_id, member_id, source_account_id, destination_account_id, tx_date, amount)
+                       VALUES (%s, %s, %s, %s, '2020-06-01', %s) RETURNING transfer_id""",
+                    (household, member, origin, destination, amount),
+                ).fetchone()[0]
+                conn.execute(
+                    """INSERT INTO finance.savings_contribution
+                       (household_id, member_id, goal_id, contributed_on, amount, transfer_id)
+                       VALUES (%s, %s, %s, '2020-06-01', %s, %s)""",
+                    (household, member, goal, amount, transfer),
+                )
+        assignment = {"id": goal, "accountId": self.second_account}
+        self.assertEqual(self.write(self.other, "PUT", "/api/metas", assignment).status_code, 409)
+        self.assertEqual(self.write(self.client, "PUT", "/api/metas", {**assignment, "accountId": source}).status_code, 409)
+        self.assertEqual(self.write(self.client, "PUT", "/api/metas", assignment).status_code, 200)
+        self.assertEqual(self.write(self.client, "PUT", "/api/metas", assignment).status_code, 409)
+        result = self.client.get("/api/metas").json()["goals"][0]
+        self.assertEqual((result["accountId"], result["saved"]), (self.second_account, "150.00"))
+        self.assertTrue(all(c["sourceAccountId"] == source and c["destinationAccountId"] == self.second_account
+                            for c in result["contributions"]))
+        balances = {a["id"]: a["balance"] for a in self.client.get("/api/opciones").json()["accounts"]}
+        self.assertEqual((balances[source], balances[self.second_account]), ("-150.00", "150.00"))
+        bad = {"goalId": goal, "date": "2020-06-02", "amount": "5",
+               "sourceAccountId": self.second_account, "destinationAccountId": source}
+        self.assertEqual(self.write(self.client, "POST", "/api/metas/aportes", bad).status_code, 409)
+        self.assertEqual(self.client.get("/api/metas").json()["goals"][0]["saved"], "150.00")
+
+    def test_existing_goal_rejects_mismatched_transfers_without_partial_changes(self):
+        with psycopg.connect(dbname=self.database) as conn:
+            household, member = conn.execute(
+                "SELECT household_id, member_id FROM finance.account WHERE account_id = %s", (self.second_account,),
+            ).fetchone()
+            source = conn.execute("SELECT account_id FROM finance.account WHERE household_id = %s AND name = 'Cuenta principal'",
+                                  (household,)).fetchone()[0]
+            third = conn.execute(
+                """INSERT INTO finance.account (household_id, member_id, name, type, opening_configured)
+                   VALUES (%s, %s, 'Otra', 'savings', true) RETURNING account_id""",
+                (household, member),
+            ).fetchone()[0]
+            goal = conn.execute(
+                "INSERT INTO finance.savings_goal (household_id, name, target_amount) VALUES (%s, 'Meta', 500) RETURNING goal_id",
+                (household,),
+            ).fetchone()[0]
+            for origin, destination in ((self.second_account, source), (source, third)):
+                transfer = conn.execute(
+                    """INSERT INTO finance.account_transfer
+                       (household_id, member_id, source_account_id, destination_account_id, tx_date, amount)
+                       VALUES (%s, %s, %s, %s, '2020-06-01', 10) RETURNING transfer_id""",
+                    (household, member, origin, destination),
+                ).fetchone()[0]
+                conn.execute(
+                    """INSERT INTO finance.savings_contribution
+                       (household_id, member_id, goal_id, contributed_on, amount, transfer_id)
+                       VALUES (%s, %s, %s, '2020-06-01', 10, %s)""", (household, member, goal, transfer),
+                )
+        self.assertEqual(self.write(self.client, "PUT", "/api/metas",
+                                    {"id": goal, "accountId": self.second_account}).status_code, 409)
+        result = self.client.get("/api/metas").json()["goals"][0]
+        self.assertIsNone(result["accountId"])
+        self.assertTrue(any(c["sourceAccountId"] == self.second_account for c in result["contributions"]))
+
+    def test_create_account_with_opening_balance(self):
+        body = {"name": " Nueva cuenta ", "type": "savings", "amount": "250.50", "date": "2020-06-01"}
+        self.assertEqual(self.write(self.client, "POST", "/api/cuentas", body).status_code, 201)
+        account = next(a for a in self.client.get("/api/opciones").json()["accounts"] if a["name"] == "Nueva cuenta")
+        self.assertEqual((account["openingBalance"], account["openingDate"], account["openingConfigured"], account["balance"]),
+                         ("250.50", "2020-06-01", True, "250.50"))
+        self.assertEqual(self.write(self.client, "POST", "/api/cuentas", {**body, "name": "nueva cuenta"}).status_code, 409)
+        self.assertEqual(self.write(self.other, "POST", "/api/cuentas", body).status_code, 201)
+
+    def test_new_user_requires_opening_setup(self):
+        response = self.client.post("/api/auth/register", headers=self.headers,
+                                    json={"email": "new@example.test", "password": "correct horse battery"})
+        self.assertEqual(response.status_code, 201)
+        options = self.client.get("/api/opciones").json()
+        account = options["accounts"][0]
+        self.assertFalse(account["openingConfigured"])
+        self.assertIsNone(account["openingDate"])
+        expense = {"merchant": "Compra", "amount": "10", "date": "2020-06-02",
+                   "accountId": account["id"], "categoryId": options["categories"][0]["id"]}
+        self.assertEqual(self.write(self.client, "POST", "/api/gastos", expense).status_code, 400)
+        opening = {"accountId": account["id"], "amount": "100", "date": "2020-06-02"}
+        self.assertEqual(self.write(self.client, "PUT", "/api/cuentas/saldo-inicial", opening).status_code, 200)
+        self.assertEqual(self.write(self.client, "POST", "/api/gastos", expense).status_code, 201)
 
     def test_future_movements_do_not_affect_current_balances(self):
         options = self.client.get("/api/opciones").json()
@@ -160,6 +497,79 @@ class MovementIntegrationTest(unittest.TestCase):
         movements = self.client.get("/api/movimientos?mes=2999-06").json()
         self.assertEqual(movements["incomeTotal"], "1000.00")
         self.assertEqual({m["type"] for m in movements["movements"]}, {"income", "transfer"})
+
+    def test_category_batch_is_atomic_and_checks_previous_values(self):
+        categories = self.client.get("/api/dashboard/categorias").json()["categories"]
+        first, second = categories[:2]
+        def edit(category, **values):
+            return {"id": category["id"], "name": values.get("name", category["name"]),
+                    "active": values.get("active", category["active"]), "fixed": values.get("fixed", category["fixed"]),
+                    "expected": {key: category[key] for key in ("name", "active", "fixed")}}
+        changes = [edit(first, name="Categoría de prueba", fixed=not first["fixed"]),
+                   edit(second, active=False),
+                   {"name": "Nueva categoría", "active": True, "fixed": True}]
+        response = self.write(self.client, "POST", "/api/categorias/lote", {"changes": changes})
+        self.assertEqual(response.status_code, 200)
+        updated = response.json()["categories"]
+        row = next(item for item in updated if item["id"] == first["id"])
+        self.assertEqual((row["name"], row["fixed"]), ("Categoría de prueba", not first["fixed"]))
+        self.assertFalse(next(item for item in updated if item["id"] == second["id"])["active"])
+        self.assertTrue(next(item for item in updated if item["name"] == "Nueva categoría")["fixed"])
+
+        rejected = [edit(row, name="No debe guardarse"),
+                    {"name": "Nueva categoría", "active": True, "fixed": False}]
+        self.assertEqual(self.write(self.client, "POST", "/api/categorias/lote", {"changes": rejected}).status_code, 409)
+        self.assertEqual(next(item for item in self.client.get("/api/dashboard/categorias").json()["categories"]
+                              if item["id"] == first["id"])["name"], "Categoría de prueba")
+        self.assertEqual(self.write(self.client, "POST", "/api/categorias/lote", {"changes": [edit(first)]}).status_code, 409)
+        self.assertEqual(self.write(self.other, "POST", "/api/categorias/lote", {"changes": [edit(row)]}).status_code, 409)
+        self.assertEqual(self.write(self.client, "POST", "/api/categorias/lote",
+                                    {"changes": [edit(row), edit(row)]}).status_code, 400)
+
+    def test_category_batch_saves_budgets_atomically_and_detects_conflicts(self):
+        first = self.client.get("/api/dashboard/categorias").json()["categories"][0]
+        def edit(category, **values):
+            return {"id": category["id"], "name": values.get("name", category["name"]),
+                    "active": values.get("active", category["active"]), "fixed": category["fixed"],
+                    "expected": {key: category[key] for key in ("name", "active", "fixed")}}
+        def budget(amount, expected):
+            return {"month": "2020-06", "amount": amount, "expectedAmount": expected}
+        changes = [{**edit(first, name="Actualizada"), "budget": budget("1000", None)},
+                   {"name": "Nueva", "active": True, "fixed": False, "budget": budget("500", None)}]
+        response = self.write(self.client, "POST", "/api/categorias/lote", {"changes": changes})
+        self.assertEqual(response.status_code, 200)
+        first = next(row for row in response.json()["categories"] if row["id"] == first["id"])
+        new = next(row for row in response.json()["categories"] if row["name"] == "Nueva")
+        rows = self.client.get("/api/presupuestos?mes=2020-06").json()["categories"]
+        self.assertEqual(next(row["budget"] for row in rows if row["categoryId"] == first["id"]), "1000.00")
+        self.assertEqual(next(row["budget"] for row in rows if row["categoryId"] == new["id"]), "500.00")
+        self.assertEqual(self.write(self.other, "POST", "/api/categorias/lote",
+                                    {"changes": [{**edit(first), "budget": budget("5", "1000.00")}]}).status_code, 409)
+
+        rejected = [{**edit(first, name="No guardar"), "budget": budget("2000", "1000.00")},
+                    {**edit(new), "budget": budget(None, "999.00")}]
+        self.assertEqual(self.write(self.client, "POST", "/api/categorias/lote", {"changes": rejected}).status_code, 409)
+        rows = self.client.get("/api/presupuestos?mes=2020-06").json()["categories"]
+        self.assertEqual(next(row["budget"] for row in rows if row["categoryId"] == first["id"]), "1000.00")
+        self.assertEqual(next(row["name"] for row in self.client.get("/api/dashboard/categorias").json()["categories"]
+                              if row["id"] == first["id"]), "Actualizada")
+        changes = [{**edit(first), "budget": budget("0", "1000.00")},
+                   {**edit(new), "budget": budget(None, "500.00")}]
+        self.assertEqual(self.write(self.client, "POST", "/api/categorias/lote", {"changes": changes}).status_code, 200)
+        rows = self.client.get("/api/presupuestos?mes=2020-06").json()["categories"]
+        self.assertEqual(next(row["budget"] for row in rows if row["categoryId"] == first["id"]), "0.00")
+        self.assertIsNone(next(row["budget"] for row in rows if row["categoryId"] == new["id"]))
+        self.assertEqual(self.write(self.client, "POST", "/api/categorias/lote",
+                                    {"changes": [{**edit(first), "budget": budget("8", None)}]}).status_code, 409)
+        self.assertEqual(self.write(self.client, "POST", "/api/categorias/lote",
+                                    {"changes": [{**edit(first, active=False), "budget": budget("8", "0.00")}]}).status_code, 400)
+        with psycopg.connect(dbname=self.database) as conn:
+            conn.execute("UPDATE finance.budget SET amount = 12.34 WHERE category_id = %s AND month_start = '2020-06-01'",
+                         (first["id"],))
+        self.assertEqual(self.write(self.client, "POST", "/api/categorias/lote",
+                                    {"changes": [{**edit(first), "budget": budget(None, "12.34")}]}).status_code, 200)
+        rows = self.client.get("/api/presupuestos?mes=2020-06").json()["categories"]
+        self.assertIsNone(next(row["budget"] for row in rows if row["categoryId"] == first["id"]))
 
     def test_categories_and_budgets_preserve_history(self):
         categories = self.client.get("/api/categorias").json()["categories"]
@@ -266,6 +676,43 @@ class MovementIntegrationTest(unittest.TestCase):
         self.assertEqual(self.client.get("/api/movimientos?mes=2020-06").json()["movements"], [])
         with TestClient(app, base_url=self.origin) as unauthenticated:
             self.assertEqual(unauthenticated.get("/api/movimientos?mes=2020-06").status_code, 401)
+
+    def test_all_movement_history_is_ordered_and_isolated(self):
+        options = self.client.get("/api/opciones").json()
+        other = self.other.get("/api/opciones").json()
+        principal = next(account["id"] for account in options["accounts"] if account["name"] == "Cuenta principal")
+        expense = {"merchant": "Compra", "amount": "100", "date": "2020-06-02",
+                   "accountId": principal, "categoryId": options["categories"][0]["id"]}
+        income = {"merchant": "Sueldo", "amount": "300", "date": "2021-02-03",
+                  "accountId": principal, "categoryId": options["incomeCategories"][0]["id"]}
+        self.assertEqual(self.write(self.client, "POST", "/api/gastos", expense).status_code, 201)
+        self.assertEqual(self.write(self.client, "POST", "/api/ingresos", income).status_code, 201)
+        transfer = {"amount": "25.50", "date": "2022-01-01", "sourceAccountId": expense["accountId"],
+                    "destinationAccountId": self.second_account, "note": "Ahorro"}
+        self.assertEqual(self.write(self.client, "POST", "/api/transferencias", transfer).status_code, 201)
+        self.assertEqual(self.write(self.other, "POST", "/api/gastos",
+                                    {**expense, "accountId": other["accounts"][0]["id"],
+                                     "categoryId": other["categories"][0]["id"]}).status_code, 201)
+        with psycopg.connect(dbname=self.database) as conn:
+            historical_member = conn.execute(
+                """INSERT INTO finance.member (household_id, name, is_active)
+                   SELECT household_id, 'Histórico', false FROM finance.account WHERE account_id = %s
+                   RETURNING member_id""", (expense["accountId"],),
+            ).fetchone()[0]
+            conn.execute(
+                """INSERT INTO finance.transactions (household_id, member_id, account_id, category_id, tx_date, amount, type, merchant)
+                   SELECT household_id, %s, account_id, category_id, '2019-01-01', 12.50, 'expense', 'Histórico'
+                   FROM finance.transactions WHERE account_id = %s AND type = 'expense'""",
+                (historical_member, expense["accountId"]),
+            )
+        history = self.client.get("/api/movimientos?todos=1")
+        self.assertEqual(history.status_code, 200)
+        rows = history.json()["movements"]
+        self.assertEqual([row["description"] for row in rows], ["Ahorro", "Sueldo", "Compra", "Histórico"])
+        self.assertEqual([row["editable"] for row in rows[1:]], [True, True, False])
+        self.assertEqual(rows[-1]["amount"], "12.50")
+        self.assertEqual(len(self.other.get("/api/movimientos?todos=1").json()["movements"]), 1)
+        self.assertEqual(len(self.client.get("/api/movimientos?mes=2020-06").json()["movements"]), 1)
 
 
 if __name__ == "__main__":

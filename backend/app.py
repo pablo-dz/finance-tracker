@@ -11,6 +11,7 @@ from .request_helpers import json_response, read_json_body
 from .movements import router as movements_router
 from .planning import router as planning_router
 from .financial import router as financial_router
+from .dashboard import router as dashboard_router
 from .store import AuthStore, get_store
 
 
@@ -19,6 +20,7 @@ app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 app.include_router(movements_router)
 app.include_router(planning_router)
 app.include_router(financial_router)
+app.include_router(dashboard_router)
 
 
 def set_session_cookie(response, token):
@@ -73,11 +75,18 @@ async def authenticate(action: str, request: Request, store: AuthStore = Depends
 
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "frontend"
+ASSET_DIR = WEB_DIR.parent / "assets"
 
 
 @app.get("/", include_in_schema=False)
 def dashboard():
-    return FileResponse(WEB_DIR / "index.html", media_type="text/html")
+    return FileResponse(WEB_DIR / "index.html", media_type="text/html", headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/assets/finance-tracker-icon.svg", include_in_schema=False)
+def finance_tracker_icon():
+    return FileResponse(ASSET_DIR / "finance-tracker-icon.svg", media_type="image/svg+xml",
+                        headers={"Cache-Control": "no-cache"})
 
 
 @app.get("/{filename}", include_in_schema=False)
@@ -85,12 +94,14 @@ def dashboard_asset(filename: str):
     assets = {"dashboard.js": "text/javascript", "chart.js": "text/javascript", "styles.css": "text/css"}
     if filename not in assets:
         return json_response({"error": "No encontrado."}, 404)
-    return FileResponse(WEB_DIR / filename, media_type=assets[filename])
+    return FileResponse(WEB_DIR / filename, media_type=assets[filename], headers={"Cache-Control": "no-cache"})
 
 
 @app.get("/modules/{filename}", include_in_schema=False)
 def dashboard_module(filename: str):
-    modules = {"auth.js", "common.js", "expenses.js", "movements.js", "planning.js", "reports.js", "savings.js"}
+    modules = {"auth.js", "common.js", "expenses.js", "movements.js", "planning.js",
+               "savings.js", "analytics.js", "visualizations.js"}
     if filename not in modules:
         return json_response({"error": "No encontrado."}, 404)
-    return FileResponse(WEB_DIR / "modules" / filename, media_type="text/javascript")
+    return FileResponse(WEB_DIR / "modules" / filename, media_type="text/javascript",
+                        headers={"Cache-Control": "no-cache"})

@@ -94,7 +94,9 @@ async def read_movements(request: Request, store: AuthStore = Depends(get_store)
         return json_response({"error": "Inicia sesión para continuar."}, 401)
     if request.url.path == "/api/movimientos":
         months = request.query_params.getlist("mes")
-        if len(months) != 1 or not valid_month(months[0]):
+        all_periods = request.query_params.getlist("todos")
+        if not ((len(months) == 1 and valid_month(months[0]) and not all_periods)
+                or (not months and all_periods == ["1"])):
             return json_response({"error": "Selecciona un mes válido."}, 400)
         message = "Configura un hogar personal en CLP con un único integrante activo."
     else:
@@ -104,7 +106,7 @@ async def read_movements(request: Request, store: AuthStore = Depends(get_store)
         return error
     result = await run_in_threadpool(
         movements.movements if request.url.path == "/api/movimientos" else movements.options,
-        *([member, months[0]] if request.url.path == "/api/movimientos" else [member]),
+        *([member, months[0] if months else None] if request.url.path == "/api/movimientos" else [member]),
     )
     return json_response(result)
 
@@ -160,9 +162,9 @@ async def edit_movement(request: Request, store: AuthStore = Depends(get_store),
     args = (member, body, method) if kind == "transfer" else (member, kind, body, method)
     if not await run_in_threadpool(write, *args):
         messages = {
-            "expense": "El gasto, la cuenta o la categoría no pertenece a tu configuración personal o ya no está disponible.",
-            "income": "El ingreso, la cuenta o la categoría no pertenece a tu configuración personal o ya no está disponible.",
-            "transfer": "La transferencia o sus cuentas no pertenecen a tu configuración personal o ya no están disponibles.",
+            "expense": "Revisa la cuenta y categoría. La cuenta debe estar disponible y tener saldo inicial configurado antes de la fecha del gasto.",
+            "income": "Revisa la cuenta y categoría. La cuenta debe estar disponible y tener saldo inicial configurado antes de la fecha del ingreso.",
+            "transfer": "Revisa las cuentas. Ambas deben estar disponibles y tener saldo inicial configurado antes de la fecha de la transferencia.",
         }
         return json_response({"error": messages[kind]}, 400)
     label = {"expense": "Gasto", "income": "Ingreso", "transfer": "Transferencia"}[kind]
