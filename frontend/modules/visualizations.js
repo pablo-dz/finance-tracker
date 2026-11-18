@@ -222,7 +222,7 @@ export function horizontalBarChart(container, entries, format) {
 }
 
 export function lineChart(container, labels, series, format,
-  { labelStep = 1, xLabel = "Mes", pointDetails = false, pointLabels = labels } = {}) {
+  { labelStep = 1, xLabel = "Mes", pointDetails = false, pointLabels = labels, xValues = null } = {}) {
   chartTooltipCleanup.get(container)?.();
   chartTooltipCleanup.delete(container);
   container.replaceChildren();
@@ -238,7 +238,9 @@ export function lineChart(container, labels, series, format,
   }
   const scale = monetaryScale(min, max);
   const y = (value) => scalePosition(value, scale, 20, 170);
-  const x = (index) => labels.length === 1 ? 360 : 30 + index * 660 / (labels.length - 1);
+  const x = (index) => labels.length === 1 ? 360 : 30 + 660 * (xValues
+    ? (xValues[index] - xValues[0]) / (xValues[xValues.length - 1] - xValues[0])
+    : index / (labels.length - 1));
   const hint = text(document, "p", "Desliza horizontalmente para ver el gráfico completo.", "visualization-hint");
   const legend = text(document, "div", "", "visualization-legend");
   const plot = text(document, "div", "", "visualization-line-plot");
@@ -265,6 +267,7 @@ export function lineChart(container, labels, series, format,
   });
   series.forEach((entry, index) => {
     const color = entry.color ?? COLORS[index % COLORS.length];
+    const dash = entry.dash ?? (index === 1 ? "8 4" : index === 2 ? "2 4" : null);
     const key = text(document, "span", entry.name, "visualization-key");
     const marker = text(document, "span", "", "visualization-marker");
     marker.style.backgroundColor = color;
@@ -276,8 +279,7 @@ export function lineChart(container, labels, series, format,
       svg.append(svgElement(document, "polyline", {
         points: points.join(" "), fill: "none", stroke: color, "stroke-width": 3,
         "stroke-linejoin": "round", "stroke-linecap": "round",
-        ...(index === 1 ? { "stroke-dasharray": "8 4" } : {}),
-        ...(index === 2 ? { "stroke-dasharray": "2 4" } : {}),
+        ...(dash ? { "stroke-dasharray": dash } : {}),
       }));
       points = [];
     };

@@ -1,5 +1,5 @@
-import { displayName, formatMoney, state } from "./common.js?v=17";
-import { budgetChart, horizontalBarChart, lineChart, pieChart3D } from "./visualizations.js?v=17";
+import { displayName, formatMoney, state } from "./common.js?v=19";
+import { budgetChart, horizontalBarChart, lineChart, pieChart3D } from "./visualizations.js?v=19";
 
 const status = document.querySelector("#dashboard-status");
 const content = document.querySelector("#dashboard-content");
@@ -15,7 +15,11 @@ const categoryEvolutionValues = document.querySelector("#category-evolution-valu
 const paceNote = document.querySelector("#dashboard-pace-note");
 const paceList = document.querySelector("#dashboard-pace");
 const paceChart = document.querySelector("#dashboard-pace-chart");
-const goalList = document.querySelector("#dashboard-goals");
+const goalControls = document.querySelector("#goal-projection-controls");
+const goalSelect = document.querySelector("#goal-projection-select");
+const goalStatus = document.querySelector("#goal-projection-status");
+const goalChart = document.querySelector("#goal-projection-chart");
+const goalValues = document.querySelector("#goal-projection-values");
 const balanceList = document.querySelector("#dashboard-balances");
 const balanceChart = document.querySelector("#dashboard-balance-chart");
 const topChart = document.querySelector("#dashboard-top-chart");
@@ -42,20 +46,6 @@ function node(tag, text, className) {
   if (text !== undefined) element.textContent = text;
   if (className) element.className = className;
   return element;
-}
-
-function empty(list, message) {
-  list.replaceChildren(node("li", message, "dashboard-empty"));
-}
-
-function bar(value, max, className = "") {
-  const track = node("div", undefined, "dashboard-bar-track");
-  const fill = node("div", undefined, `dashboard-bar ${className}`);
-  const magnitude = value < 0n ? -value : value;
-  fill.style.width = max > 0n ? `${Number((magnitude * 10000n) / max) / 100}%` : "0%";
-  track.setAttribute("aria-hidden", "true");
-  track.append(fill);
-  return track;
 }
 
 function metric(title, value, comparison) {
@@ -262,24 +252,63 @@ function renderPace(data) {
   }
 }
 
-function renderGoals(goals) {
-  goalList.replaceChildren();
-  if (!goals.length) return empty(goalList, "No hay metas de ahorro.");
+function projectionDate(today, offset) {
+  const [year, month, day] = today.split("-").map(Number);
+  const first = new Date(Date.UTC(year, month - 1 + offset, 1));
+  const lastDay = new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + 1, 0)).getUTCDate();
+  first.setUTCDate(Math.min(day, lastDay));
+  return first.toISOString().slice(0, 10);
+}
+
+function renderSelectedGoal(data) {
+  const goal = data.goals.find((item) => item.estimate.status !== "achieved" && String(item.id) === goalSelect.value);
+  lineChart(goalChart, [], [], money);
+  goalValues.replaceChildren();
+  if (!goal) {
+    goalStatus.textContent = data.goals.length ? "No hay metas de ahorro pendientes." : "No hay metas de ahorro.";
+    return;
+  }
   const messages = {
-    achieved: "Meta alcanzada",
     insufficient: "Sin suficientes aportes para estimar una fecha",
     out_of_range: "La fecha estimada está fuera del rango disponible",
   };
-  for (const goal of goals) {
-    const estimate = goal.estimate.status === "estimated"
-      ? `Fecha estimada: ${goal.estimate.date.split("-").reverse().join("/")}`
-      : messages[goal.estimate.status];
-    const item = node("li", undefined, "dashboard-chart-item");
-    item.append(node("strong", goal.name),
-      node("p", `Ahorrado: ${formatMoney(goal.saved)} de ${formatMoney(goal.target)} · ${estimate}`),
-      bar(cents(goal.saved) > cents(goal.target) ? cents(goal.target) : cents(goal.saved), cents(goal.target)));
-    goalList.append(item);
+  const estimate = goal.estimate.status === "estimated"
+    ? `Fecha estimada: ${goal.estimate.date.split("-").reverse().join("/")}`
+    : messages[goal.estimate.status];
+  goalStatus.textContent = `Ahorrado: ${formatMoney(goal.saved)} de ${formatMoney(goal.target)} · ${estimate}.`;
+  if (goal.estimate.status !== "estimated") return;
+
+  const [year, month] = data.today.split("-").map(Number);
+  const [endYear, endMonth] = goal.estimate.date.split("-").map(Number);
+  const months = (endYear - year) * 12 + endMonth - month;
+  const count = Math.min(months + 1, 13);
+  const offsets = Array.from({ length: count }, (_, index) => Math.round(index * months / (count - 1)));
+  const dates = offsets.map((offset) => projectionDate(data.today, offset));
+  const target = cents(goal.target);
+  const saved = cents(goal.saved);
+  const recent = cents(goal.recent);
+  const projected = offsets.map((offset) => {
+    const value = saved + recent * BigInt(offset) / 3n;
+    return value > target ? target : value;
+  });
+  const labels = dates.map((date) => date.split("-").reverse().join("/"));
+  lineChart(goalChart, labels, [
+    { name: "Proyección", values: projected, dash: "8 4" },
+    { name: "Meta", values: offsets.map(() => target), dash: "2 4" },
+  ], money, { xLabel: "Fecha", pointDetails: true, xValues: offsets,
+    labelStep: Math.max(1, Math.ceil((count - 1) / 3)) });
+  for (const [index, label] of labels.entries()) {
+    goalValues.append(node("li", `${label}: Proyección: ${money(projected[index])} · Meta: ${money(target)}`));
   }
+}
+
+function renderGoals(data) {
+  const selected = goalSelect.value;
+  const pending = data.goals.filter((goal) => goal.estimate.status !== "achieved");
+  goalSelect.replaceChildren(...pending.map((goal) => new Option(goal.name, String(goal.id))));
+  if (pending.some((goal) => String(goal.id) === selected)) goalSelect.value = selected;
+  goalControls.hidden = !pending.length;
+  renderSelectedGoal(data);
 }
 
 function renderBalances(data) {
@@ -333,7 +362,7 @@ export async function loadDashboard(month) {
     renderTrend(data);
     renderCategories(data);
     renderPace(data);
-    renderGoals(data.goals);
+    renderGoals(data);
     renderBalances(data);
     renderTop(data);
     content.hidden = false;
@@ -355,4 +384,8 @@ period.addEventListener("change", () => {
     renderCategories(dashboardData);
     renderBalances(dashboardData);
   }
+});
+
+goalSelect.addEventListener("change", () => {
+  if (dashboardData) renderSelectedGoal(dashboardData);
 });

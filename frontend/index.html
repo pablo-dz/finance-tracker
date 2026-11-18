@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Mis finanzas</title>
-  <link rel="stylesheet" href="/styles.css?v=17">
-  <script src="/dashboard.js?v=17" type="module"></script>
+  <link rel="stylesheet" href="/styles.css?v=18">
+  <script src="/dashboard.js?v=19" type="module"></script>
 </head>
 <body>
   <header>
@@ -122,8 +122,14 @@
         </details>
         <details class="dashboard-section">
           <summary>Proyección de metas de ahorro</summary>
-          <p>Estimación según los aportes de los últimos tres meses completos, incluidos los meses sin aportes.</p>
-          <ul id="dashboard-goals"></ul>
+          <p>Proyección de metas pendientes desde hoy según el promedio de aportes de los últimos tres meses completos, incluidos los meses sin aportes. No es una garantía. Señala, toca o enfoca un punto para ver el detalle.</p>
+          <div id="goal-projection-controls" hidden>
+            <label for="goal-projection-select">Meta de ahorro</label>
+            <select id="goal-projection-select"></select>
+          </div>
+          <p id="goal-projection-status" role="status" aria-live="polite"></p>
+          <div id="goal-projection-chart" class="visualization"></div>
+          <ul id="goal-projection-values" class="visually-hidden" aria-label="Valores de la proyección de ahorro"></ul>
         </details>
         <details class="dashboard-section">
           <summary>Evolución de saldos por cuenta</summary>

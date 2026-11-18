@@ -220,6 +220,17 @@ test("los saldos desconocidos no se dibujan como cero ni conectan períodos sin 
   dom.window.close();
 });
 
+test("la escala temporal respeta la distancia entre meses proyectados", () => {
+  const dom = new JSDOM("<div></div>");
+  const container = dom.window.document.querySelector("div");
+  lineChart(container, ["Hoy", "Mes 2", "Mes 3"], [{ name: "Proyección", values: [0n, 2n, 3n], dash: "8 4" }],
+    String, { xValues: [0, 2, 3] });
+  const line = container.querySelector("polyline");
+  assert.deepEqual(line.getAttribute("points").split(" ").map((point) => point.split(",")[0]), ["30", "470", "690"]);
+  assert.equal(line.getAttribute("stroke-dasharray"), "8 4");
+  dom.window.close();
+});
+
 test("las escalas monetarias se ajustan a los datos y alinean marcas con la cuadrícula", () => {
   const dom = new JSDOM("<div></div>");
   const container = dom.window.document.querySelector("div");

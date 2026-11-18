@@ -60,6 +60,8 @@ test("los módulos coordinan la sesión, los movimientos y la planificación", a
     dashboardBudgets: null,
     dashboardCategories: null,
     dashboardMonthly: null,
+    dashboardGoals: null,
+    dashboardToday: null,
     failDashboard: false,
     failExpenses: false,
     failHistory: false,
@@ -101,7 +103,7 @@ test("los módulos coordinan la sesión, los movimientos y la planificación", a
                         saving: String(income - expense),
                         savingRate: income ? String((income - expense) * 100 / income) : null };
       result = {
-        month, today: `${month}-15`, current,
+        month, today: data.dashboardToday ?? `${month}-15`, current,
         previous: { income: "0", expenses: "0", saving: "0", savingRate: null },
         monthly: data.dashboardMonthly ?? [current],
         categories: data.dashboardCategories ?? (expense ? [{ month, id: 2, name: "Groceries",
@@ -112,8 +114,8 @@ test("los módulos coordinan la sesión, los movimientos y la planificación", a
                     exceeded: budget !== null && expense > budget }],
         daily: expense ? [{ day: 1, budgeted: String(budget === null ? 0 : expense),
                             unbudgeted: String(budget === null ? expense : 0) }] : [],
-        goals: data.goals.map((goal) => ({
-          name: goal.name, saved: goal.saved, target: goal.targetAmount,
+        goals: data.dashboardGoals ?? data.goals.map((goal) => ({
+          id: goal.id, name: goal.name, saved: goal.saved, target: goal.targetAmount, recent: "0",
           estimate: { status: "insufficient", date: null },
         })),
         balances: [{ month, balance: account.openingBalance, accounts: [
@@ -316,6 +318,74 @@ test("los módulos coordinan la sesión, los movimientos y la planificación", a
   assert.match(balanceChart.querySelector(".line-tooltip").textContent, /Cuenta principal:.*Ahorro: \$45,5/);
   assert.ok(balancePoint.getAttribute("aria-label").includes("Ahorro: $45,5"));
   assert.equal([...window.document.querySelectorAll("summary")].some((item) => item.textContent === "Ver saldos mensuales"), false);
+  assert.equal(element("#goal-projection-controls").hidden, true);
+  assert.equal(element("#goal-projection-status").textContent, "No hay metas de ahorro.");
+
+  data.dashboardToday = "2024-01-31";
+  data.dashboardGoals = [
+    { id: 11, name: "Viaje", saved: "400.00", target: "1000.00", recent: "900.00",
+      estimate: { status: "estimated", date: "2024-03-31" } },
+    { id: 12, name: "Fondo", saved: "0", target: "1000", recent: "0",
+      estimate: { status: "insufficient", date: null } },
+    { id: 13, name: "Completa", saved: "1100", target: "1000", recent: "0",
+      estimate: { status: "achieved", date: null } },
+    { id: 14, name: "Lejana", saved: "0", target: "1000", recent: "0.01",
+      estimate: { status: "out_of_range", date: null } },
+    { id: 15, name: "Larga", saved: "0", target: "4800", recent: "30",
+      estimate: { status: "estimated", date: "2064-01-31" } },
+    { id: 16, name: "Centavos", saved: "0", target: "0.01", recent: "0.01",
+      estimate: { status: "estimated", date: "2024-04-30" } },
+  ];
+  submit("#month-form");
+  await waitFor(() => element("#goal-projection-status").textContent.includes("Fecha estimada: 31/03/2024"));
+  assert.equal(element("#goal-projection-controls").hidden, false);
+  assert.deepEqual([...element("#goal-projection-select").options].map((option) => option.value),
+    ["11", "12", "14", "15", "16"]);
+  assert.match(element("#goal-projection-status").textContent, /Ahorrado: \$400 de \$1.000/);
+  assert.deepEqual([...element("#goal-projection-values").children].map((item) => item.textContent), [
+    "31/01/2024: Proyección: $400 · Meta: $1.000",
+    "29/02/2024: Proyección: $700 · Meta: $1.000",
+    "31/03/2024: Proyección: $1.000 · Meta: $1.000",
+  ]);
+  const projection = element("#goal-projection-chart");
+  assert.equal(projection.querySelectorAll("polyline")[0].getAttribute("stroke-dasharray"), "8 4");
+  const point = projection.querySelectorAll(".visualization-point-target")[1];
+  point.dispatchEvent(new window.MouseEvent("mouseenter"));
+  assert.match(projection.querySelector(".line-tooltip").textContent, /29\/02\/2024.*Proyección: \$700.*Meta: \$1.000/);
+  for (const [id, message] of [
+    ["12", "Sin suficientes aportes"], ["14", "fuera del rango disponible"],
+  ]) {
+    element("#goal-projection-select").value = id;
+    element("#goal-projection-select").dispatchEvent(new window.Event("change", { bubbles: true }));
+    assert.ok(element("#goal-projection-status").textContent.includes(message));
+    assert.equal(projection.querySelector("svg"), null);
+  }
+  element("#goal-projection-select").value = "15";
+  element("#goal-projection-select").dispatchEvent(new window.Event("change", { bubbles: true }));
+  assert.equal(element("#goal-projection-values").children.length, 13);
+  assert.match(element("#goal-projection-values").lastElementChild.textContent, /31\/01\/2064: Proyección: \$4.800/);
+  element("#goal-projection-select").value = "16";
+  element("#goal-projection-select").dispatchEvent(new window.Event("change", { bubbles: true }));
+  assert.match(element("#goal-projection-values").children[2].textContent, /31\/03\/2024: Proyección: \$0 ·/);
+  assert.match(element("#goal-projection-values").lastElementChild.textContent, /30\/04\/2024: Proyección: \$0,01/);
+  element("#goal-projection-select").value = "15";
+  element("#goal-projection-select").dispatchEvent(new window.Event("change", { bubbles: true }));
+  submit("#month-form");
+  await waitFor(() => !element("#dashboard-content").hidden && element("#goal-projection-select").value === "15");
+  data.dashboardGoals[4].estimate = { status: "achieved", date: null };
+  submit("#month-form");
+  await waitFor(() => element("#goal-projection-select").value === "11");
+  assert.ok(![...element("#goal-projection-select").options].some((option) => option.value === "15"));
+  data.dashboardGoals = [data.dashboardGoals[2]];
+  submit("#month-form");
+  await waitFor(() => element("#goal-projection-status").textContent === "No hay metas de ahorro pendientes.");
+  assert.equal(element("#goal-projection-controls").hidden, true);
+  assert.equal(projection.querySelector("svg"), null);
+  assert.equal(element("#goal-projection-values").children.length, 0);
+  data.dashboardGoals = null;
+  data.dashboardToday = null;
+  submit("#month-form");
+  await waitFor(() => element("#goal-projection-status").textContent === "No hay metas de ahorro.");
 
   const initialMonth = element("#month").value;
   element("#month").value = "2024-12";

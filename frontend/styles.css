@@ -96,15 +96,7 @@ li { border-top: 1px solid #edf1ed; padding: 15px 0; }
 .expense-breakdown-row dd { margin: 0; color: #1d3228; font-weight: 600; overflow-wrap: anywhere; }
 .dashboard-section { border-top: 1px solid #e1e9e1; margin-top: 16px; padding-top: 14px; }
 .dashboard-section summary { cursor: pointer; color: #1f6041; font-weight: 700; }
-.dashboard-section > p, .dashboard-chart-item p { color: #64766a; font-size: 13px; }
-.dashboard-chart-item { padding: 10px 0; }
-.dashboard-chart-item p { margin: 5px 0; }
-.dashboard-bar-track { height: 7px; background: #e8f0e9; border-radius: 6px; margin: 5px 0; overflow: hidden; }
-.dashboard-bar { height: 100%; background: #368b5f; }
-.dashboard-bar.income { background: #287c58; }
-.dashboard-bar.expense, .dashboard-bar.budget-level-exceeded, .dashboard-bar.budget-level-limit { background: #b94a48; }
-.dashboard-bar.ideal { background: #8ca3c1; }
-.dashboard-bar.budget-level-warning { background: #bf7a13; }
+.dashboard-section > p { color: #64766a; font-size: 13px; }
 .budget-level-warning { color: #8a5708 !important; }
 .budget-level-exceeded, .budget-level-limit { color: #a53d3d !important; }
 .budget-chart, .visualization, .visualization-composition {
