@@ -22,53 +22,41 @@
 
 ## 👋 ¿Qué es Finance Tracker?
 
-Finance Tracker es una aplicación web para llevar un seguimiento personal de
-ingresos, gastos y ahorro en pesos chilenos (CLP). Reúne tus movimientos y
-cuentas en un dashboard para ayudarte a entender cómo evoluciona tu dinero.
+Finance Tracker es una aplicación web para llevar el control de tus ingresos, gastos y ahorro en pesos chilenos (CLP). Junta tus movimientos y cuentas en un dashboard para que puedas ver fácilmente cómo evoluciona tu plata.
 
-La aplicación está enfocada en el uso individual. Compartir un hogar y
-presupuestos con otras personas es una idea para una etapa posterior.
+Es una app que creé con ayuda de Copilot, una IA de programación.
 
 ## ✨ Funcionalidades principales
 
-> Las capturas muestran datos ficticios preparados para ilustrar la interfaz.
+> Las capturas usan datos ficticios, preparados solo para mostrar la interfaz.
 
 ### 📊 Dashboard mensual
 
-Consulta ingresos, gastos, ahorro neto y tasa de ahorro; compara presupuestos
-con gastos y explora gráficos interactivos de categorías, tendencias, saldos,
-ritmo de gasto y proyección de metas.
+Revisa tus ingresos, gastos, ahorro neto y tasa de ahorro, y compara tus presupuestos con lo que realmente has gastado. Incluye gráficos interactivos de categorías, tendencias, saldos, ritmo de gasto y proyección de metas.
 
 ![Dashboard mensual con indicadores y gráficos](./docs/screenshots/dashboard.png)
 
 ### 💸 Movimientos
 
-Registra ingresos y egresos, transfiere dinero entre cuentas y consulta el
-historial. Puedes filtrar por fechas, tipo, categoría, descripción y cuenta,
-además de editar o eliminar registros.
+Registra tus ingresos y egresos, transfiere plata entre cuentas y revisa tu historial. Puedes filtrar por fechas, tipo, categoría, descripción y cuenta, y también editar o eliminar cualquier registro.
 
 ![Filtros e historial de movimientos](./docs/screenshots/movimientos.png)
 
 ### 🏦 Cuentas
 
-Crea cuentas, define sus saldos iniciales y consulta sus saldos actuales.
-También puedes registrar ajustes sin convertirlos en ingresos o gastos.
+Crea tus cuentas, define sus saldos iniciales y consulta cuánto tienes en cada una. Además, puedes registrar ajustes de saldo sin que cuenten como ingresos ni gastos.
 
 ![Cuentas y opciones para administrar saldos](./docs/screenshots/cuentas.png)
 
 ### 🗂️ Categorías y presupuestos
 
-Personaliza categorías de gasto, clasifícalas como fijas o variables y
-configura un presupuesto por categoría y mes. Puedes archivar categorías sin
-borrar su historial.
+Personaliza tus categorías de gasto y clasifícalas como fijas o variables. Luego define un presupuesto para cada categoría y cada mes. Si una categoría ya no te sirve, puedes archivarla sin perder su historial.
 
 ![Categorías de gasto y presupuestos mensuales](./docs/screenshots/categorias.png)
 
 ### 🎯 Metas de ahorro
 
-Crea metas asociadas a una cuenta de ahorro y revisa su progreso. Cada aporte
-se registra como una transferencia desde otra cuenta y modifica sus saldos;
-las metas completadas aparecen en un apartado separado.
+Crea metas asociadas a una cuenta de ahorro y sigue tu avance. Cada aporte se registra como una transferencia desde otra cuenta, así que los saldos se actualizan solos. Las metas cumplidas pasan a una sección aparte.
 
 ![Metas de ahorro y registro de aportes](./docs/screenshots/metas.png)
 
@@ -76,14 +64,9 @@ las metas completadas aparecen en un apartado separado.
 
 ### 👉 [finance-tracker-akxi.onrender.com](https://finance-tracker-akxi.onrender.com/)
 
-Puedes crear una cuenta con correo y contraseña para comenzar. La aplicación
-usa el plan gratuito de Render, por lo que puede tardar en responder después
-de un período de inactividad.
+Para empezar, solo tienes que crear una cuenta con tu correo y una contraseña. La app corre en el plan gratuito de Render, así que si lleva un rato sin uso puede demorarse en responder la primera vez.
 
-> **Antes de guardar información financiera real:** el registro es público y
-> aún no hay verificación de correo, recuperación de contraseña ni
-> autenticación multifactor. Usa una contraseña segura y mantén respaldos
-> cifrados independientes. Consulta la
+> **Antes de guardar información financiera real:** el registro es público y todavía no hay verificación de correo, recuperación de contraseña ni autenticación multifactor. Usa una contraseña segura y mantén tus propios respaldos cifrados. Puedes revisar la
 > [guía de seguridad y respaldos](./docs/guia-tecnica.md#preparación-remota-gratuita-render-y-neon).
 
 ## ☁️ Despliegue
@@ -93,11 +76,8 @@ de un período de inactividad.
 | Aplicación y API | [Render](https://render.com/) | Sirve la interfaz y ejecuta el backend desde `main` |
 | Base de datos | [Neon](https://neon.tech/) | Aloja PostgreSQL |
 
-Los planes gratuitos tienen límites y pueden cambiar. Render puede suspender
-la aplicación por inactividad y Neon tiene límites de uso y almacenamiento.
-Para desplegar tu propia instancia, revisa la
-[configuración remota](./docs/guia-tecnica.md#preparación-remota-gratuita-render-y-neon)
-y nunca publiques credenciales.
+Los planes gratuitos tienen límites y pueden cambiar con el tiempo: Render suspende la app cuando no se usa y Neon limita el uso y el almacenamiento. Si quieres desplegar tu propia instancia, sigue la
+[configuración remota](./docs/guia-tecnica.md#preparación-remota-gratuita-render-y-neon) y nunca publiques tus credenciales.
 
 ## 🧰 Tecnologías
 
@@ -124,20 +104,15 @@ y nunca publiques credenciales.
 
 ## 🚀 Cómo ejecutarlo en tu equipo
 
-Necesitas Python 3.10 o posterior, Node.js 22 o posterior, npm, PostgreSQL y
-el cliente `psql`.
+Necesitas Python 3.10 o superior, Node.js 22 o superior, npm, PostgreSQL y el cliente `psql`.
 
 ### 1. Prepara la base de datos
 
-Crea una base PostgreSQL **nueva y vacía**, configura la conexión local y
-ejecuta las migraciones 001 a 012 en orden siguiendo
+Crea una base PostgreSQL **nueva y vacía**, configura la conexión local y ejecuta las migraciones de la 001 a la 012, en orden, siguiendo las instrucciones de
 [Preparar una base nueva](./docs/guia-tecnica.md#preparar-una-base-nueva).
-La aplicación usa `finance_tracker` por defecto; también puedes configurar
-`DATABASE_URL` o las variables habituales de PostgreSQL.
+Por defecto la app usa una base llamada `finance_tracker`, pero también puedes configurar `DATABASE_URL` o las variables habituales de PostgreSQL.
 
-> Las migraciones no son repetibles y no existe un registro automático de las
-> aplicadas. No las vuelvas a ejecutar sobre una base preparada: respáldala y
-> aplica solo las pendientes en orden.
+> Las migraciones no se pueden repetir y la app no lleva un registro de cuáles ya se aplicaron. No las vuelvas a ejecutar sobre una base ya preparada: haz un respaldo y aplica solo las que falten, en orden.
 
 ### 2. Instala y ejecuta la aplicación
 
@@ -150,40 +125,29 @@ npm install
 npm start
 ```
 
-Abre [http://127.0.0.1:3000](http://127.0.0.1:3000) y crea tu cuenta.
-Para detener el servidor, presiona `Ctrl+C`. Para cambiar de puerto, usa por
-ejemplo `PORT=3001 npm start`.
+Abre [http://127.0.0.1:3000](http://127.0.0.1:3000) y crea tu cuenta. Para detener el servidor, presiona `Ctrl+C`. Si quieres usar otro puerto, puedes hacerlo así: `PORT=3001 npm start`.
 
-La [guía técnica](./docs/guia-tecnica.md) incluye las migraciones completas,
-datos ficticios opcionales, configuración remota, comportamiento de las
-funciones y respaldo y restauración.
+En la [guía técnica](./docs/guia-tecnica.md) encontrarás las migraciones completas, los datos ficticios opcionales, la configuración remota, el detalle de cómo funciona cada parte y cómo respaldar y restaurar tus datos.
 
 ## ✅ Pruebas
 
-Desde la raíz:
+Desde la raíz del proyecto:
 
 ```bash
 npm test
 ```
 
-Las pruebas de integración con PostgreSQL se omiten por defecto. La
-[guía técnica](./docs/guia-tecnica.md#api-python) explica cómo ejecutarlas
-en bases temporales separadas.
+Las pruebas de integración con PostgreSQL no se ejecutan por defecto. En la
+[guía técnica](./docs/guia-tecnica.md#api-python) se explica cómo correrlas en bases temporales separadas.
 
 ## 🔭 Próximos pasos
 
-La prioridad es seguir mejorando el seguimiento financiero personal. Más
-adelante se podría incorporar el uso compartido del hogar con invitaciones,
-permisos y presupuestos. La verificación de correo, la recuperación de
-contraseña y la autenticación multifactor también son mejoras pendientes.
+Lo próximo que quiero agregar es el modo **hogar**: que varias personas puedan compartir presupuestos y llevar sus finanzas de forma conjunta.
 
 ## 🤝 Estado y contribuciones
 
-Finance Tracker sigue en desarrollo. Las sugerencias y contribuciones son
-bienvenidas; para cambios grandes, abre primero una conversación o un issue.
-Trabaja en una rama de funcionalidad y abre un pull request hacia `main`.
+Finance Tracker sigue en desarrollo. Las sugerencias y contribuciones son bienvenidas; si se trata de un cambio grande, abre antes una conversación o un issue. Trabaja en una rama aparte y abre un pull request hacia `main`.
 
 ## 📄 Licencia
 
-Este repositorio aún no incluye un archivo de licencia. No se debe asumir que
-el código puede reutilizarse o redistribuirse sin autorización.
+Este repositorio todavía no incluye un archivo de licencia, así que no se debe asumir que el código se puede reutilizar o redistribuir sin autorización.
