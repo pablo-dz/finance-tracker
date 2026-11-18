@@ -17,17 +17,22 @@ function text(document, tag, value, className) {
 
 function monetaryScale(min, max) {
   if (min === max) return { min, max, ticks: [min] };
-  const rawStep = (max - min + 3n) / 4n;
+  const margin = (value) => (value + 9n) / 10n;
+  const lower = min < 0n ? min - margin(-min) : 0n;
+  const upper = max > 0n ? max + margin(max) : margin(-min);
+  const range = upper - lower;
+  const rawStep = (range + 4n) / 5n;
   const magnitude = 10n ** BigInt(rawStep.toString().length - 1);
   const steps = [magnitude, 2n * magnitude];
   if (magnitude >= 10n) steps.push(5n * magnitude / 2n);
   steps.push(5n * magnitude, 10n * magnitude);
   const step = steps.find((candidate) => candidate >= rawStep);
   const floor = (value) => value >= 0n ? value / step * step : -((-value + step - 1n) / step) * step;
-  const lower = floor(min);
-  const upper = -floor(-max);
-  const ticks = [];
-  for (let value = upper; value >= lower; value -= step) ticks.push(value);
+  const ticks = [upper];
+  for (let value = floor(upper); value > lower; value -= step) {
+    if (value !== upper && (upper - value) * 20n >= range && (value - lower) * 20n >= range) ticks.push(value);
+  }
+  ticks.push(lower);
   return { min: lower, max: upper, ticks };
 }
 

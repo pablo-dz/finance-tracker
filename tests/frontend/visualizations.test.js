@@ -54,15 +54,21 @@ test("el gráfico de presupuestos superpone barras en una escala monetaria comú
   assert.equal(container.querySelector(".visualization-axis-x").textContent, "Categoría");
   const limits = [...container.querySelectorAll(".budget-column-limit")];
   const spends = [...container.querySelectorAll(".budget-column-within, .budget-column-exceeded")];
-  assert.deepEqual(limits.map((item) => Number(item.getAttribute("height"))), [120, 120, 120, 0]);
-  assert.deepEqual(spends.map((item) => Number(item.getAttribute("height"))), [60, 120, 240, 0]);
+  for (const [actual, expected] of limits.map((item) => Number(item.getAttribute("height")))
+    .map((height, index) => [height, [100, 100, 100, 0][index] / 220 * 240])) {
+    assert.ok(Math.abs(actual - expected) < 0.001);
+  }
+  for (const [actual, expected] of spends.map((item) => Number(item.getAttribute("height")))
+    .map((height, index) => [height, [50, 100, 200, 0][index] / 220 * 240])) {
+    assert.ok(Math.abs(actual - expected) < 0.001);
+  }
   assert.deepEqual(spends.map((item) => item.getAttribute("class")), [
     "budget-column-within", "budget-column-within", "budget-column-exceeded", "budget-column-within",
   ]);
   assert.equal(Number(limits[0].getAttribute("x")) + Number(limits[0].getAttribute("width")) / 2,
     Number(spends[0].getAttribute("x")) + Number(spends[0].getAttribute("width")) / 2);
   assert.deepEqual([...container.querySelectorAll(".budget-y-axis .visualization-y-tick")].map((item) => item.textContent),
-    ["200", "150", "100", "50", "0"]);
+    ["220", "200", "150", "100", "50", "0"]);
   assert.deepEqual([...container.querySelectorAll(".budget-plot-labels span")].map((item) => item.textContent),
     ["Dentro", "Igual", "Excedido", "Cero"]);
   const targets = container.querySelectorAll(".budget-bar-target");
@@ -155,13 +161,16 @@ test("el gráfico temporal representa valores positivos y negativos sobre una es
     { name: "Referencia", values: [0n, 0n, 0n] },
   ], String);
   const lines = container.querySelectorAll("polyline");
-  assert.equal(lines[0].getAttribute("points"), "30,20 360,105 690,190");
+  const yValues = lines[0].getAttribute("points").split(" ").map((point) => Number(point.split(",")[1]));
+  assert.ok(Math.abs(yValues[0] - 27.7273) < 0.001);
+  assert.equal(yValues[1], 105);
+  assert.ok(Math.abs(yValues[2] - 182.2727) < 0.001);
   assert.equal(lines[1].getAttribute("points"), "30,105 360,105 690,105");
   assert.equal(container.querySelector(".visualization-zero").getAttribute("y1"), "105");
   assert.equal(container.querySelector(".visualization-axis-y").textContent, "Monto (CLP)");
   assert.equal(container.querySelector(".visualization-axis-x").textContent, "Mes");
   assert.deepEqual([...container.querySelectorAll(".visualization-y-tick")].map((item) => item.textContent),
-    ["100", "50", "0", "-50", "-100"]);
+    ["110", "50", "0", "-50", "-110"]);
   lineChart(container, ["Ene"], [{ name: "Saldo", values: [0n] }], String, { xLabel: "Día del mes" });
   assert.equal(container.querySelector("circle").getAttribute("cy"), "190");
   assert.equal(container.querySelector(".visualization-axis-x").textContent, "Día del mes");
@@ -237,28 +246,45 @@ test("las escalas monetarias se ajustan a los datos y alinean marcas con la cuad
   lineChart(container, ["Ene", "Feb"], [{ name: "Saldo", values: [-140n, 310n] }], String);
   const ticks = [...container.querySelectorAll(".visualization-y-tick")];
   const grid = [...container.querySelectorAll("svg line")];
-  assert.deepEqual(ticks.map((tick) => tick.textContent), ["400", "200", "0", "-200"]);
+  assert.deepEqual(ticks.map((tick) => tick.textContent), ["341", "300", "200", "100", "0", "-100", "-154"]);
   for (let i = 0; i < ticks.length; i++) {
     assert.ok(Math.abs(parseFloat(ticks[i].style.top) - Number(grid[i].getAttribute("y1")) * 240 / 225) < 0.001);
   }
   const points = container.querySelector("polyline").getAttribute("points").split(" ");
-  assert.ok(Math.abs(Number(points[0].split(",")[1]) - 173) < 0.001);
-  assert.ok(Math.abs(Number(points[1].split(",")[1]) - 45.5) < 0.001);
+  assert.ok(Math.abs(Number(points[0].split(",")[1]) - 185.1919) < 0.001);
+  assert.ok(Math.abs(Number(points[1].split(",")[1]) - 30.6464) < 0.001);
 
   lineChart(container, ["Ene"], [{ name: "Saldo", values: [1n] }], String);
-  assert.deepEqual([...container.querySelectorAll(".visualization-y-tick")].map((tick) => tick.textContent), ["1", "0"]);
+  assert.deepEqual([...container.querySelectorAll(".visualization-y-tick")].map((tick) => tick.textContent), ["2", "1", "0"]);
   lineChart(container, ["Ene"], [{ name: "Saldo", values: [0n] }], String);
   assert.deepEqual([...container.querySelectorAll(".visualization-y-tick")].map((tick) => tick.textContent), ["0"]);
   lineChart(container, ["Ene"], [{ name: "Saldo", values: [-1n] }], String);
-  assert.deepEqual([...container.querySelectorAll(".visualization-y-tick")].map((tick) => tick.textContent), ["0", "-1"]);
+  assert.deepEqual([...container.querySelectorAll(".visualization-y-tick")].map((tick) => tick.textContent), ["1", "0", "-1", "-2"]);
   lineChart(container, ["Ene"], [{ name: "Saldo", values: [9999999999999999n] }], String);
   assert.deepEqual([...container.querySelectorAll(".visualization-y-tick")].map((tick) => tick.textContent),
-    ["10000000000000000", "7500000000000000", "5000000000000000", "2500000000000000", "0"]);
+    ["10999999999999999", "10000000000000000", "7500000000000000", "5000000000000000", "2500000000000000", "0"]);
 
   budgetChart(container, [{ name: "A", limit: 230n, spent: 0n, detail: [] }], String);
   assert.deepEqual([...container.querySelectorAll(".visualization-y-tick")].map((tick) => tick.textContent),
-    ["300", "200", "100", "0"]);
-  assert.ok(Math.abs(Number(container.querySelector(".budget-column-limit").getAttribute("height")) - 184) < 0.001);
+    ["253", "200", "100", "0"]);
+  assert.ok(Math.abs(Number(container.querySelector(".budget-column-limit").getAttribute("height")) - 230 / 253 * 240) < 0.001);
+  dom.window.close();
+});
+
+test("el máximo del eje conserva un margen del diez por ciento en líneas y presupuestos", () => {
+  const dom = new JSDOM("<div></div>");
+  const container = dom.window.document.querySelector("div");
+  for (const max of [1n, 123n, 10001n, 10000000000n, 9999999999999999n]) {
+    const upper = max + (max + 9n) / 10n;
+    lineChart(container, ["Mes"], [{ name: "Saldo", values: [max] }], String);
+    assert.equal(container.querySelector(".visualization-y-tick").textContent, String(upper));
+    const y = Number(container.querySelector("circle").getAttribute("cy"));
+    assert.ok(y >= 20 && y <= 190);
+    budgetChart(container, [{ name: "A", limit: max, spent: 0n, detail: [] }], String);
+    assert.equal(container.querySelector(".visualization-y-tick").textContent, String(upper));
+    const height = Number(container.querySelector(".budget-column-limit").getAttribute("height"));
+    assert.ok(height > 0 && height < 240);
+  }
   dom.window.close();
 });
 

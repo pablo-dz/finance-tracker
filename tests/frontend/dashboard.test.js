@@ -420,7 +420,7 @@ test("los módulos coordinan la sesión, los movimientos y la planificación", a
   assert.equal(element("#category-evolution-chart .visualization-axis-x").textContent, "Mes");
   assert.equal(element("#category-evolution-chart .visualization-axis-y").textContent, "Monto (CLP)");
   assert.deepEqual([...element("#category-evolution-chart").querySelectorAll(".visualization-y-tick")]
-    .map((tick) => tick.textContent), ["$80", "$60", "$40", "$20", "$0"]);
+    .map((tick) => tick.textContent), ["$82,5", "$60", "$40", "$20", "$0"]);
   assert.ok(element("#category-evolution-values").classList.contains("visually-hidden"));
   assert.equal(element("#dashboard-category-trend"), null);
   assert.match(element("#category-evolution-values").textContent, /2024-01: \$20.*2024-02: \$0/);
@@ -450,7 +450,7 @@ test("los módulos coordinan la sesión, los movimientos y la planificación", a
   choices[1].dispatchEvent(new window.MouseEvent("mouseenter"));
   assert.equal(element("#category-evolution-title").textContent, "Evolución: Sin categoría");
   assert.deepEqual([...element("#category-evolution-chart").querySelectorAll(".visualization-y-tick")]
-    .map((tick) => tick.textContent), ["$40", "$30", "$20", "$10", "$0"]);
+    .map((tick) => tick.textContent), ["$44", "$40", "$30", "$20", "$10", "$0"]);
   assert.notEqual(choices[0].querySelector(".visualization-marker").style.backgroundColor,
     choices[1].querySelector(".visualization-marker").style.backgroundColor);
   assertEvolutionColor(choices[1]);
