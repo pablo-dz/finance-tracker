@@ -3,10 +3,10 @@ import {
   saveButton, incomeFormMessage,
   transferFormMessage, displayName, todayText, formatMoney,
   state,
-} from "./common.js?v=13";
-import { deleteExpense, editExpense, loadExpenses } from "./expenses.js?v=13";
-import { selectMovementMonth } from "./planning.js?v=13";
-import { refreshDashboard } from "./analytics.js?v=13";
+} from "./common.js?v=14";
+import { deleteExpense, editExpense, loadExpenses } from "./expenses.js?v=14";
+import { selectMovementMonth } from "./planning.js?v=14";
+import { refreshDashboard } from "./analytics.js?v=14";
 
 const incomeForm = document.querySelector("#income-form");
 const saveIncomeButton = document.querySelector("#save-income");
@@ -40,7 +40,6 @@ let savingOpeningBalance = false;
 let savingAdjustment = false;
 let incomeOptionsAvailable = false;
 let historyRequest = 0;
-let monthlyRequest = 0;
 let historyRows = null;
 
 export function clearMovementHistory() {
@@ -166,22 +165,6 @@ export async function refreshAccounts() {
     accountStatus.textContent = "";
   } catch (error) {
     accountStatus.textContent = error instanceof Error ? error.message : "No fue posible consultar las cuentas.";
-  }
-}
-
-export async function loadMovements(month) {
-  const requestId = ++monthlyRequest;
-  try {
-    const response = await fetch(`/api/movimientos?mes=${encodeURIComponent(month)}`);
-    const data = await response.json();
-    if (requestId !== monthlyRequest) return false;
-    if (!response.ok) throw new Error(data.error || "No fue posible consultar los movimientos del mes.");
-    document.querySelector("#income-total").textContent = formatMoney(data.incomeTotal);
-    return true;
-  } catch (error) {
-    if (requestId !== monthlyRequest) return false;
-    document.querySelector("#message").textContent = error instanceof Error ? error.message : "No fue posible consultar los movimientos del mes.";
-    return false;
   }
 }
 

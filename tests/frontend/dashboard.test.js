@@ -289,6 +289,9 @@ test("los módulos coordinan la sesión, los movimientos y la planificación", a
   assert.equal(element("#savings-panel").hidden, true);
   assert.equal(element("#nav-dashboard").getAttribute("aria-current"), "page");
   assert.equal(element("#budget-panel"), null);
+  assert.equal(element("#total"), null);
+  assert.equal(element("#count"), null);
+  assert.equal(element("#income-card"), null);
   assert.match(element("#dashboard-summary").textContent, /Sin ingresos/);
   assert.deepEqual([...element('[aria-label="Desglose de gastos"]').querySelectorAll(".expense-breakdown-row")]
     .map((row) => row.textContent), ["Fijos$0", "Variables$0"]);
@@ -458,10 +461,8 @@ test("los módulos coordinan la sesión, los movimientos y la planificación", a
   field("#expense-form", "categoryId", "2");
   submit("#expense-form");
   await waitFor(() => element("#movements").textContent.includes("Compra") && !element("#save-expense").disabled);
-  assert.equal(element("#total").textContent, "$1.500");
   assert.equal(element("#categories"), null);
   assert.equal(element("#report-panel"), null);
-  assert.equal(element("#count").textContent, "1");
   assert.match(element("#movements .movement-amount.expense").textContent, /↓ −\$1.500/);
   assert.match(element("#movements").textContent, /Histórico.*Egreso.*−\$12,5/);
   assert.equal(element('[aria-label="Editar Histórico"]'), null);
@@ -470,7 +471,7 @@ test("los módulos coordinan la sesión, los movimientos y la planificación", a
   assert.equal(element("#registration").open, true);
   field("#expense-form", "amount", "1200");
   submit("#expense-form");
-  await waitFor(() => element("#total").textContent === "$1.200" && !element("#save-expense").disabled);
+  await waitFor(() => element("#dashboard-summary").textContent.includes("Gastos$1.200") && !element("#save-expense").disabled);
   assert.match(element("#dashboard-summary").textContent, /Gastos\$1.200/);
   assert.match(element("#dashboard-pace-note").textContent, /Gastos sin presupuesto hasta la fecha: \$1.200/);
   assert.match(element("#dashboard-category-chart").textContent, /Supermercado.*100 %/);
@@ -482,7 +483,7 @@ test("los módulos coordinan la sesión, los movimientos y la planificación", a
   field("#expense-form", "categoryId", "2");
   submit("#expense-form");
   await waitFor(() => element("#form-message").textContent === "No se pudo guardar el gasto.");
-  assert.equal(element("#total").textContent, "$1.200");
+  assert.match(element("#dashboard-summary").textContent, /Gastos\$1.200/);
   assert.equal(element('#expense-form [name="merchant"]').value, "Rechazado");
 
   field("#income-form", "merchant", "Sueldo");
@@ -491,7 +492,7 @@ test("los módulos coordinan la sesión, los movimientos y la planificación", a
   field("#income-form", "categoryId", "3");
   submit("#income-form");
   await waitFor(() => element("#movements").textContent.includes("Sueldo") && !element("#save-income").disabled);
-  assert.equal(element("#income-total").textContent, "$3.000");
+  await waitFor(() => element("#dashboard-summary").textContent.includes("Ingresos$3.000"));
   assert.match(element("#movements .movement-amount.income").textContent, /↑ \+\$3.000/);
   assert.match(element("#movements").textContent, /Compra/);
   element('[aria-label="Editar ingreso Sueldo"]').click();

@@ -41,13 +41,7 @@ button:disabled { opacity: .6; cursor: not-allowed; }
 :focus-visible { outline: 3px solid #84b98c; outline-offset: 2px; }
 .notice { background: #edf5e9; border-radius: 8px; padding: 14px; color: #47664e; font-size: 13px; margin: 30px 0 20px; }
 #message { color: #804a35; }
-.cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
-.card, .panel { background: white; border: 1px solid #e1e9e1; border-radius: 12px; padding: 22px; }
-.card p { font-size: 13px; margin: 0 0 15px; }
-.card strong { display: block; font-size: 29px; margin-bottom: 7px; }
-.card small { color: #718377; }
-.card.total { background: #1f6041; color: white; border-color: #1f6041; }
-.card.total small { color: #c9e2d0; }
+.panel { background: white; border: 1px solid #e1e9e1; border-radius: 12px; padding: 22px; }
 .panel { margin-top: 16px; }
 h2 { font-size: 20px; margin: 8px 0 22px; }
 ul { padding: 0; margin: 0; list-style: none; }
@@ -202,7 +196,6 @@ li { border-top: 1px solid #edf1ed; padding: 15px 0; }
 }
 @media (max-width: 600px) {
   .intro { flex-direction: column; align-items: stretch; }
-  .cards { grid-template-columns: 1fr; }
   .filters { flex-wrap: wrap; }
   .form-grid { grid-template-columns: 1fr; }
   .auth-forms { grid-template-columns: 1fr; }

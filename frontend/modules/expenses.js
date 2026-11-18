@@ -2,10 +2,10 @@ import {
   monthInput, movementStatus, expenseForm, formMessage,
   saveButton, todayText,
   formatMoney, state,
-} from "./common.js?v=13";
-import { loadMovements, loadMovementHistory, refreshAccounts } from "./movements.js?v=13";
-import { beginBudgetLoad, budgetLoadFailed, loadBudgets, selectMovementMonth } from "./planning.js?v=13";
-import { loadDashboard } from "./analytics.js?v=13";
+} from "./common.js?v=14";
+import { loadMovementHistory, refreshAccounts } from "./movements.js?v=14";
+import { beginBudgetLoad, budgetLoadFailed, loadBudgets, selectMovementMonth } from "./planning.js?v=14";
+import { loadDashboard } from "./analytics.js?v=14";
 
 const message = document.querySelector("#message");
 const results = document.querySelector("#results");
@@ -104,7 +104,6 @@ export async function loadExpenses(month = state.displayedBudgetMonth || state.b
   const historyRequest = loadMovementHistory();
   beginBudgetLoad(month);
   state.displayedBudgetMonth = null;
-  document.querySelector("#income-card").hidden = false;
   results.hidden = true;
   message.textContent = "Cargando gastos...";
   try {
@@ -113,20 +112,16 @@ export async function loadExpenses(month = state.displayedBudgetMonth || state.b
     if (requestId !== currentRequest) return false;
     if (!response.ok) throw new Error(data.error || "No fue posible consultar los gastos.");
 
-    const count = data.categories.reduce((total, category) => total + category.count, 0);
-    document.querySelector("#total").textContent = formatMoney(data.total);
-    document.querySelector("#count").textContent = String(count);
     message.textContent = "";
     results.hidden = false;
     state.displayedBudgetMonth = month;
-    const [movementsLoaded, budgetsLoaded, historyLoaded] = await Promise.all([
-      loadMovements(month),
+    const [budgetsLoaded, historyLoaded] = await Promise.all([
       loadBudgets(month),
       historyRequest,
       loadDashboard(month),
     ]);
     if (requestId !== currentRequest) return false;
-    return budgetsLoaded && movementsLoaded && historyLoaded;
+    return budgetsLoaded && historyLoaded;
   } catch (error) {
     if (requestId !== currentRequest) return false;
     message.textContent = error instanceof Error ? error.message : "No fue posible consultar los gastos.";
