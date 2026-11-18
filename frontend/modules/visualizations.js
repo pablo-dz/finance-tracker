@@ -180,7 +180,8 @@ export function budgetChart(container, entries, format) {
   container.append(legend, hint, plot, text(document, "p", "Categoría", "visualization-axis-title visualization-axis-x"));
 }
 
-export function lineChart(container, labels, series, format, { labelStep = 1, xLabel = "Mes", pointDetails = false } = {}) {
+export function lineChart(container, labels, series, format,
+  { labelStep = 1, xLabel = "Mes", pointDetails = false, pointLabels = labels } = {}) {
   chartTooltipCleanup.get(container)?.();
   chartTooltipCleanup.delete(container);
   container.replaceChildren();
@@ -243,8 +244,8 @@ export function lineChart(container, labels, series, format, { labelStep = 1, xL
         if (index > 0) target.tabIndex = -1;
         target.style.left = `${x(i) / 720 * 100}%`;
         target.style.top = `${y(value) * 240 / 225}px`;
-        target.setAttribute("aria-label", `${labels[i]}. ${detail.join(". ")}`);
-        popup.bind(target, target, labels[i], detail);
+        target.setAttribute("aria-label", `${pointLabels[i]}. ${detail.join(". ")}`);
+        popup.bind(target, target, pointLabels[i], detail);
         inner.append(target);
       }
     });

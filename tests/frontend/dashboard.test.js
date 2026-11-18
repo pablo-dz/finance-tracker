@@ -438,6 +438,23 @@ test("los módulos coordinan la sesión, los movimientos y la planificación", a
   assert.equal(element("#dashboard-pace-chart svg").querySelectorAll("polyline").length, 2);
   assert.equal(element("#dashboard-pace-chart .visualization-axis-x").textContent, "Día del mes");
   assert.equal(element("#dashboard-pace-chart .visualization-axis-y").textContent, "Monto (CLP)");
+  assert.ok(element("#dashboard-pace").classList.contains("visually-hidden"));
+  assert.equal([...window.document.querySelectorAll("summary")].some((item) => item.textContent === "Ver datos diarios"), false);
+  const pacePoints = element("#dashboard-pace-chart").querySelectorAll(".visualization-point-target");
+  assert.equal(pacePoints.length, 32);
+  pacePoints[3].dispatchEvent(new window.MouseEvent("mouseenter"));
+  const paceTooltip = element("#dashboard-pace-chart .line-tooltip");
+  assert.match(paceTooltip.textContent, /Día 3.*Gasto acumulado: \$1.200.*Ritmo ideal: \$/);
+  for (const value of paceTooltip.querySelectorAll("span")) {
+    assert.ok(element("#dashboard-pace").children[2].textContent.includes(value.textContent));
+  }
+  assert.match(pacePoints[3].getAttribute("aria-label"), /Día 3.*Gasto acumulado: \$1.200.*Ritmo ideal: \$/);
+  pacePoints[0].focus();
+  assert.match(paceTooltip.textContent, /Día 0.*Gasto acumulado: \$0.*Ritmo ideal: \$0/);
+  pacePoints[3].click();
+  assert.match(paceTooltip.textContent, /Día 3.*Gasto acumulado: \$1.200/);
+  pacePoints[19].click();
+  assert.match(paceTooltip.textContent, /Día 3.*Gasto acumulado: \$1.200.*Ritmo ideal: \$/);
   assert.match(element("#budgets").textContent, /Disponible: \$500/);
   for (const [spent, expected] of [["1360", "Alerta: 80 % o más"],
                                    ["1700", "Límite alcanzado"],

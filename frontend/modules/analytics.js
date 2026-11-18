@@ -218,7 +218,7 @@ function renderCategories(data) {
 function renderPace(data) {
   const budgets = data.budgets.filter((row) => row.budget !== null);
   paceList.replaceChildren();
-  paceChart.replaceChildren();
+  lineChart(paceChart, [], [], money);
   if (!budgets.length) {
     const unbudgeted = data.daily.reduce((sum, row) => sum + cents(row.unbudgeted), 0n);
     paceNote.textContent = `Configura al menos un presupuesto para comparar el ritmo. Gastos sin presupuesto hasta la fecha: ${money(unbudgeted)}.`;
@@ -244,12 +244,7 @@ function renderPace(data) {
     const ideal = total * BigInt(day) / BigInt(daysInMonth);
     actual.push(spent);
     idealValues.push(ideal);
-    const max = spent > total ? spent : total;
-    const item = node("li", undefined, "dashboard-chart-item");
-    item.append(node("strong", `Día ${day}`),
-      node("p", `Acumulado: ${money(spent)} · Ritmo ideal: ${money(ideal)}`),
-      bar(spent, max, "expense"), bar(ideal, max, "ideal"));
-    paceList.append(item);
+    paceList.append(node("li", `Día ${day}: Gasto acumulado: ${money(spent)} · Ritmo ideal: ${money(ideal)}`));
   }
   paceNote.textContent = elapsed === 0 ? "El mes aún no comienza."
     : `Presupuesto total: ${money(total)} · Gastos sin presupuesto hasta la fecha: ${money(unbudgeted)}.`;
@@ -258,7 +253,8 @@ function renderPace(data) {
     lineChart(paceChart, labels, [
       { name: "Gasto acumulado", values: actual },
       { name: "Ritmo ideal", values: idealValues },
-    ], money, { xLabel: "Día del mes" });
+    ], money, { xLabel: "Día del mes", pointDetails: true,
+                pointLabels: actual.map((_, day) => `Día ${day}`) });
   }
 }
 
