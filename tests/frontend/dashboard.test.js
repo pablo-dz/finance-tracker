@@ -36,6 +36,7 @@ test("los módulos coordinan la sesión, los movimientos y la planificación", a
     goals: [],
     categories: [{ id: 2, name: "Groceries", active: true, fixed: false }],
     payments: [],
+    dashboardBudgets: null,
     failDashboard: false,
     failExpenses: false,
     failGoals: false,
@@ -80,7 +81,7 @@ test("los módulos coordinan la sesión, los movimientos y la planificación", a
         monthly: [current],
         categories: expense ? [{ month, id: 2, name: "Groceries",
                                  fixed: data.categories[0].fixed, amount: String(expense) }] : [],
-        budgets: [{ categoryId: 2, category: "Groceries", isActive: true,
+        budgets: data.dashboardBudgets ?? [{ categoryId: 2, category: "Groceries", isActive: true,
                     budget: budget === null ? null : String(budget), spent: String(expense),
                     difference: budget === null ? null : String(Math.abs(budget - expense)),
                     exceeded: budget !== null && expense > budget }],
@@ -233,6 +234,47 @@ test("los módulos coordinan la sesión, los movimientos y la planificación", a
   assert.equal(element("#nav-dashboard").getAttribute("aria-current"), "page");
   assert.match(element("#dashboard-summary").textContent, /Sin ingresos/);
   assert.equal(element("#dashboard-trend-chart svg").getAttribute("aria-hidden"), "true");
+
+  data.dashboardBudgets = [
+    { category: "Normal", budget: "100.00", spent: "79.99", difference: "20.01", exceeded: false },
+    { category: "Alerta", budget: "100.00", spent: "80.00", difference: "20.00", exceeded: false },
+    { category: "Límite", budget: "100.00", spent: "100.00", difference: "0.00", exceeded: false },
+    { category: "Exceso", budget: "100.00", spent: "150.00", difference: "50.00", exceeded: true },
+    { category: "Exceso mínimo", budget: "1000.00", spent: "1000.01", difference: "0.01", exceeded: true },
+    { category: "Bajo la alerta", budget: "1000.00", spent: "799.99", difference: "200.01", exceeded: false },
+    { category: "Muy pequeño", budget: "999999999999.00", spent: "0.01", difference: "999999999998.99", exceeded: false },
+    { category: "Cero con gasto", budget: "0.00", spent: "10.00", difference: "10.00", exceeded: true },
+    { category: "Cero sin gasto", budget: "0.00", spent: "0.00", difference: "0.00", exceeded: false },
+    { category: "Sin límite", budget: null, spent: "20.00", difference: null, exceeded: false },
+  ];
+  submit("#month-form");
+  await waitFor(() => element("#dashboard-budget-chart").textContent.includes("Cero con gasto")
+    && !element("#dashboard-content").hidden);
+  const chartItems = [...element("#dashboard-budget-chart").querySelectorAll(".budget-chart-item")];
+  assert.deepEqual(chartItems.map((item) => item.querySelector("strong").textContent),
+    ["Exceso", "Exceso mínimo", "Límite", "Alerta", "Bajo la alerta", "Normal", "Muy pequeño"]);
+  for (const [index, width, level] of [[0, "100%", "exceeded"], [1, "100%", "exceeded"],
+                                       [2, "100%", "limit"], [3, "80%", "warning"],
+                                       [4, "79.99%", "normal"], [5, "79.99%", "normal"]]) {
+    const fill = chartItems[index].querySelector(".dashboard-bar");
+    assert.equal(fill.style.width, width);
+    assert.ok(fill.classList.contains(`budget-level-${level}`));
+  }
+  assert.match(chartItems[0].textContent, /150 %.*Excedido: \$50/);
+  assert.match(chartItems[1].textContent, />100 %.*Presupuesto excedido/);
+  assert.match(chartItems[4].textContent, /79,99 %.*Dentro del presupuesto/);
+  assert.match(chartItems[6].textContent, /<0,01 %/);
+  assert.match(element("#dashboard-budget-chart").textContent, /Presupuesto cero.*Cero con gasto.*Excedido: \$10.*Cero sin gasto.*Sin gasto/);
+  assert.match(element("#dashboard-budget-chart").textContent, /Sin presupuesto.*Sin límite.*Gastado: \$20/);
+  assert.equal(element("#dashboard-budgets").closest("details").open, false);
+  data.dashboardBudgets = [];
+  submit("#month-form");
+  await waitFor(() => element("#dashboard-budget-chart").textContent.includes("No hay categorías")
+    && !element("#dashboard-content").hidden);
+  data.dashboardBudgets = null;
+  submit("#month-form");
+  await waitFor(() => element("#dashboard-budget-chart").textContent.includes("Sin presupuesto")
+    && !element("#dashboard-content").hidden);
 
   field("#expense-form", "merchant", "Compra");
   field("#expense-form", "amount", "1500");

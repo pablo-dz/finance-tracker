@@ -91,8 +91,11 @@
         </select>
         <details class="dashboard-section" open>
           <summary>Presupuesto vs. gasto real</summary>
-          <p>Alertas al alcanzar el 80 % y el 100 % del límite. Las categorías sin presupuesto se indican aparte.</p>
+          <p>Las barras comparan el gasto con el límite de cada categoría. Alertas desde el 80 % y el 100 %.</p>
+          <div id="dashboard-budget-chart" class="budget-chart"></div>
+          <details class="visualization-data"><summary>Ver detalle de presupuestos</summary>
           <ul id="dashboard-budgets"></ul>
+          </details>
         </details>
         <details class="dashboard-section" open>
           <summary>Ingresos, gastos y ahorro en el tiempo</summary>

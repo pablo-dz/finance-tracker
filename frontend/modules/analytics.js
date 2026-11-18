@@ -6,6 +6,7 @@ const content = document.querySelector("#dashboard-content");
 const period = document.querySelector("#dashboard-period");
 const summary = document.querySelector("#dashboard-summary");
 const budgetList = document.querySelector("#dashboard-budgets");
+const budgetChart = document.querySelector("#dashboard-budget-chart");
 const trendList = document.querySelector("#dashboard-trend");
 const trendChart = document.querySelector("#dashboard-trend-chart");
 const categoryTrend = document.querySelector("#dashboard-category-trend");
@@ -92,7 +93,59 @@ function renderSummary(data) {
 
 function renderBudgets(rows) {
   budgetList.replaceChildren();
-  if (!rows.length) return empty(budgetList, "No hay categorías para este mes.");
+  budgetChart.replaceChildren();
+  if (!rows.length) {
+    budgetChart.append(node("p", "No hay categorías para este mes.", "dashboard-empty"));
+    return empty(budgetList, "No hay categorías para este mes.");
+  }
+  const withLimit = rows.filter((row) => row.budget !== null && cents(row.budget) > 0n);
+  const zeroLimit = rows.filter((row) => row.budget !== null && cents(row.budget) === 0n);
+  const withoutLimit = rows.filter((row) => row.budget === null);
+  withLimit.sort((a, b) => {
+    const difference = cents(a.spent) * cents(b.budget) - cents(b.spent) * cents(a.budget);
+    return difference > 0n ? -1 : difference < 0n ? 1 : 0;
+  });
+  if (withLimit.length) {
+    const chart = node("ul", undefined, "budget-chart-bars");
+    chart.setAttribute("aria-label", "Gasto por categoría frente al presupuesto");
+    for (const row of withLimit) {
+      const spent = cents(row.spent);
+      const limit = cents(row.budget);
+      const level = budgetLevel(spent, limit);
+      const hundredths = spent * 10000n / limit;
+      const fraction = String(hundredths % 100n).padStart(2, "0").replace(/0+$/, "");
+      const percentage = spent > 0n && hundredths === 0n ? "<0,01 %"
+        : spent > limit && hundredths === 10000n ? ">100 %"
+        : `${new Intl.NumberFormat("es-CL").format(hundredths / 100n)}${fraction ? `,${fraction}` : ""} %`;
+      const item = node("li", undefined, "budget-chart-item");
+      const heading = node("div", undefined, "budget-chart-heading");
+      const name = displayName(row.category) + (row.isActive === false ? " · Archivada" : "");
+      heading.append(node("strong", name), node("span", `${formatMoney(row.spent)} / ${formatMoney(row.budget)}`));
+      const detail = node("div", undefined, "budget-chart-detail");
+      detail.append(node("span", `${percentage} · ${budgetLabel(level)}`, `budget-level-${level}`),
+        node("span", `${row.exceeded ? "Excedido" : "Disponible"}: ${formatMoney(row.difference)}`));
+      item.append(heading, bar(spent > limit ? limit : spent, limit, `budget-level-${level}`), detail);
+      chart.append(item);
+    }
+    budgetChart.append(chart);
+  } else {
+    budgetChart.append(node("p", "No hay categorías con presupuesto mayor que cero.", "dashboard-empty"));
+  }
+  for (const [title, entries] of [["Presupuesto cero", zeroLimit], ["Sin presupuesto", withoutLimit]]) {
+    if (!entries.length) continue;
+    const section = node("section", undefined, "budget-chart-exceptions");
+    const list = node("ul");
+    section.append(node("h4", title), list);
+    for (const row of entries) {
+      const name = displayName(row.category) + (row.isActive === false ? " · Archivada" : "");
+      const item = node("li");
+      const detail = row.budget === null ? `Gastado: ${formatMoney(row.spent)}`
+        : `Gastado: ${formatMoney(row.spent)} · ${cents(row.spent) > 0n ? `Excedido: ${formatMoney(row.difference)}` : "Sin gasto"}`;
+      item.append(node("strong", name), node("span", detail, row.budget !== null && cents(row.spent) > 0n ? "budget-level-exceeded" : ""));
+      list.append(item);
+    }
+    budgetChart.append(section);
+  }
   for (const row of rows) {
     const item = node("li", undefined, "dashboard-chart-item");
     const name = displayName(row.category) + (row.isActive === false ? " · Archivada" : "");
@@ -102,17 +155,23 @@ function renderBudgets(rows) {
     } else {
       const limit = cents(row.budget);
       const spent = cents(row.spent);
-      const level = limit === 0n ? (spent > 0n ? "exceeded" : "normal")
-        : spent > limit ? "exceeded" : spent * 100n >= limit * 100n ? "limit"
-          : spent * 100n >= limit * 80n ? "warning" : "normal";
-      const label = { normal: "Dentro del presupuesto", warning: "Alerta: 80 % o más",
-                      limit: "Límite alcanzado", exceeded: "Presupuesto excedido" }[level];
+      const level = budgetLevel(spent, limit);
       const difference = `${row.exceeded ? "Excedido" : "Disponible"}: ${formatMoney(row.difference)}`;
-      item.append(node("p", `Gastado: ${formatMoney(row.spent)} · Límite: ${formatMoney(row.budget)} · ${difference} · ${label}`, `budget-level-${level}`));
-      item.append(bar(spent > limit ? limit : spent, limit, `budget-level-${level}`));
+      item.append(node("p", `Gastado: ${formatMoney(row.spent)} · Límite: ${formatMoney(row.budget)} · ${difference} · ${budgetLabel(level)}`, `budget-level-${level}`));
     }
     budgetList.append(item);
   }
+}
+
+function budgetLevel(spent, limit) {
+  return limit === 0n ? (spent > 0n ? "exceeded" : "normal")
+    : spent > limit ? "exceeded" : spent === limit ? "limit"
+      : spent * 100n >= limit * 80n ? "warning" : "normal";
+}
+
+function budgetLabel(level) {
+  return { normal: "Dentro del presupuesto", warning: "Alerta: 80 % o más",
+           limit: "Límite alcanzado", exceeded: "Presupuesto excedido" }[level];
 }
 
 function renderTrend(data) {
