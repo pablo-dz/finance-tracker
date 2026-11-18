@@ -116,7 +116,10 @@ test("los módulos coordinan la sesión, los movimientos y la planificación", a
           name: goal.name, saved: goal.saved, target: goal.targetAmount,
           estimate: { status: "insufficient", date: null },
         })),
-        balances: [{ month, balance: account.openingBalance }],
+        balances: [{ month, balance: account.openingBalance, accounts: [
+          { id: account.id, name: account.name, balance: account.openingBalance },
+          { id: secondAccount.id, name: secondAccount.name, balance: "45.50" },
+        ] }],
         topExpenses: expense ? [{ name: data.expense.merchant, date: `${month}-01`, amount: String(expense) }] : [],
         merchants: [],
       };
@@ -292,6 +295,8 @@ test("los módulos coordinan la sesión, los movimientos y la planificación", a
   assert.equal(element("#total"), null);
   assert.equal(element("#count"), null);
   assert.equal(element("#income-card"), null);
+  assert.match(element("#dashboard-top-chart").textContent, /No hay gastos para este mes/);
+  assert.equal(element("#dashboard-merchants"), null);
   assert.match(element("#dashboard-summary").textContent, /Sin ingresos/);
   assert.deepEqual([...element('[aria-label="Desglose de gastos"]').querySelectorAll(".expense-breakdown-row")]
     .map((row) => row.textContent), ["Fijos$0", "Variables$0"]);
@@ -302,6 +307,15 @@ test("los módulos coordinan la sesión, los movimientos y la planificación", a
     assert.equal(element(`${selector} .visualization-axis-x`).textContent, "Mes");
     assert.equal(element(`${selector} .visualization-axis-y`).textContent, "Monto (CLP)");
   }
+  const balanceChart = element("#dashboard-balance-chart");
+  assert.match(balanceChart.querySelector(".visualization-legend").textContent, /Saldo total.*Cuenta principal.*Ahorro/);
+  assert.equal(balanceChart.querySelectorAll("polyline").length, 3);
+  assert.equal(element("#dashboard-balances").className, "visually-hidden");
+  const balancePoint = balanceChart.querySelector(".visualization-point-target");
+  balancePoint.dispatchEvent(new window.MouseEvent("mouseenter"));
+  assert.match(balanceChart.querySelector(".line-tooltip").textContent, /Cuenta principal:.*Ahorro: \$45,5/);
+  assert.ok(balancePoint.getAttribute("aria-label").includes("Ahorro: $45,5"));
+  assert.equal([...window.document.querySelectorAll("summary")].some((item) => item.textContent === "Ver saldos mensuales"), false);
 
   const initialMonth = element("#month").value;
   element("#month").value = "2024-12";
@@ -461,6 +475,8 @@ test("los módulos coordinan la sesión, los movimientos y la planificación", a
   field("#expense-form", "categoryId", "2");
   submit("#expense-form");
   await waitFor(() => element("#movements").textContent.includes("Compra") && !element("#save-expense").disabled);
+  await waitFor(() => element("#dashboard-top-chart .horizontal-bar"));
+  assert.match(element("#dashboard-top-chart .horizontal-bar").getAttribute("aria-label"), /Compra.*Fecha:.*Monto: \$1.500/);
   assert.equal(element("#categories"), null);
   assert.equal(element("#report-panel"), null);
   assert.match(element("#movements .movement-amount.expense").textContent, /↓ −\$1.500/);

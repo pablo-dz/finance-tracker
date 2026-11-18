@@ -180,6 +180,47 @@ export function budgetChart(container, entries, format) {
   container.append(legend, hint, plot, text(document, "p", "Categoría", "visualization-axis-title visualization-axis-x"));
 }
 
+export function horizontalBarChart(container, entries, format) {
+  chartTooltipCleanup.get(container)?.();
+  chartTooltipCleanup.delete(container);
+  container.replaceChildren();
+  if (!entries.length) return;
+  const document = container.ownerDocument;
+  const ordered = [...entries].sort((a, b) => a.value > b.value ? -1 : a.value < b.value ? 1 : 0);
+  const max = ordered[0].value;
+  const legend = text(document, "div", "", "visualization-legend horizontal-bar-legend");
+  for (const [label, level] of [
+    ["Bajo: menos de 1/3", "low"],
+    ["Medio: desde 1/3", "medium"],
+    ["Alto: desde 2/3", "high"],
+  ]) {
+    const key = text(document, "span", label, "visualization-key");
+    key.prepend(text(document, "span", "", `visualization-marker horizontal-level-${level}`));
+    legend.append(key);
+  }
+  const plot = text(document, "div", "", "horizontal-bar-plot");
+  const list = text(document, "ul", "", "horizontal-bar-list");
+  const { tooltip, bind } = chartTooltip(container, plot, plot, "horizontal-bar-tooltip");
+  for (const entry of ordered) {
+    const item = text(document, "li", "", "horizontal-bar-item");
+    const label = text(document, "div", "", "horizontal-bar-label");
+    label.append(text(document, "span", entry.name), text(document, "strong", format(entry.value)));
+    const level = max > 0n && entry.value * 3n >= max * 2n ? "high"
+      : max > 0n && entry.value * 3n >= max ? "medium" : "low";
+    const levelName = { high: "Alto", medium: "Medio", low: "Bajo" }[level];
+    const detail = [...entry.detail, `Nivel relativo: ${levelName}`];
+    const bar = text(document, "button", "", `horizontal-bar horizontal-level-${level}`);
+    bar.type = "button";
+    bar.style.width = max > 0n ? `${Number(entry.value * 1000000n / max) / 10000}%` : "0%";
+    bar.setAttribute("aria-label", `${entry.name}. ${detail.join(". ")}`);
+    bind(bar, bar, entry.name, detail);
+    item.append(label, bar);
+    list.append(item);
+  }
+  plot.append(list, tooltip);
+  container.append(legend, plot);
+}
+
 export function lineChart(container, labels, series, format,
   { labelStep = 1, xLabel = "Mes", pointDetails = false, pointLabels = labels } = {}) {
   chartTooltipCleanup.get(container)?.();
@@ -191,6 +232,7 @@ export function lineChart(container, labels, series, format,
   let min = 0n;
   let max = 0n;
   for (const value of values) {
+    if (value === null) continue;
     if (value < min) min = value;
     if (value > max) max = value;
   }
@@ -228,17 +270,26 @@ export function lineChart(container, labels, series, format,
     marker.style.backgroundColor = color;
     key.prepend(marker);
     legend.append(key);
-    const points = entry.values.map((value, i) => `${x(i)},${y(value)}`).join(" ");
-    svg.append(svgElement(document, "polyline", {
-      points, fill: "none", stroke: color, "stroke-width": 3,
-      "stroke-linejoin": "round", "stroke-linecap": "round",
-      ...(index === 1 ? { "stroke-dasharray": "8 4" } : {}),
-      ...(index === 2 ? { "stroke-dasharray": "2 4" } : {}),
-    }));
+    let points = [];
+    const drawPoints = () => {
+      if (!points.length) return;
+      svg.append(svgElement(document, "polyline", {
+        points: points.join(" "), fill: "none", stroke: color, "stroke-width": 3,
+        "stroke-linejoin": "round", "stroke-linecap": "round",
+        ...(index === 1 ? { "stroke-dasharray": "8 4" } : {}),
+        ...(index === 2 ? { "stroke-dasharray": "2 4" } : {}),
+      }));
+      points = [];
+    };
     entry.values.forEach((value, i) => {
+      if (value === null) {
+        drawPoints();
+        return;
+      }
+      points.push(`${x(i)},${y(value)}`);
       svg.append(svgElement(document, "circle", { cx: x(i), cy: y(value), r: 3, fill: color }));
       if (popup) {
-        const detail = series.map((item) => `${item.name}: ${format(item.values[i])}`);
+        const detail = series.map((item) => `${item.name}: ${item.values[i] === null ? "Sin datos" : format(item.values[i])}`);
         const target = text(document, "button", "", "visualization-point-target");
         target.type = "button";
         if (index > 0) target.tabIndex = -1;
@@ -249,6 +300,7 @@ export function lineChart(container, labels, series, format,
         inner.append(target);
       }
     });
+    drawPoints();
   });
   if (inner) {
     inner.prepend(svg);

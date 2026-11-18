@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { JSDOM } from "jsdom";
-import { budgetChart, donutChart, lineChart, pieChart3D } from "../../frontend/modules/visualizations.js";
+import { budgetChart, donutChart, horizontalBarChart, lineChart, pieChart3D } from "../../frontend/modules/visualizations.js";
 
 test("el gráfico circular 3D selecciona categorías con mouse, teclado o toque", () => {
   const dom = new JSDOM("<div></div>");
@@ -94,6 +94,59 @@ test("el gráfico de presupuestos superpone barras en una escala monetaria comú
   dom.window.close();
 });
 
+test("las barras horizontales ordenan gastos y muestran detalles con mouse, teclado o toque", () => {
+  const dom = new JSDOM("<div></div><div id='outside'></div>");
+  const container = dom.window.document.querySelector("div");
+  horizontalBarChart(container, [
+    { name: "Menor", value: 5000n, detail: ["Fecha: 02/06/2020", "Monto: 50"] },
+    { name: "Mayor", value: 10000n, detail: ["Fecha: 01/06/2020", "Monto: 100"] },
+    { name: "Igual", value: 5000n, detail: ["Fecha: 03/06/2020", "Monto: 50"] },
+  ], String);
+  const rows = [...container.querySelectorAll(".horizontal-bar-item")];
+  assert.deepEqual(rows.map((row) => row.querySelector(".horizontal-bar-label span").textContent), ["Mayor", "Menor", "Igual"]);
+  const bars = rows.map((row) => row.querySelector("button"));
+  assert.deepEqual(bars.map((bar) => bar.style.width), ["100%", "50%", "50%"]);
+  const tooltip = container.querySelector(".horizontal-bar-tooltip");
+  bars[0].dispatchEvent(new dom.window.MouseEvent("mouseenter"));
+  assert.ok(tooltip.classList.contains("is-visible"));
+  assert.match(tooltip.textContent, /Mayor.*Fecha: 01\/06\/2020.*Monto: 100/);
+  bars[0].dispatchEvent(new dom.window.MouseEvent("mouseleave"));
+  assert.ok(!tooltip.classList.contains("is-visible"));
+  bars[1].focus();
+  assert.match(tooltip.textContent, /Menor.*Fecha: 02\/06\/2020/);
+  assert.match(bars[1].getAttribute("aria-label"), /Monto: 50/);
+  bars[1].dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape" }));
+  assert.ok(!tooltip.classList.contains("is-visible"));
+  bars[2].click();
+  assert.match(tooltip.textContent, /Igual.*03\/06\/2020/);
+  horizontalBarChart(container, [], String);
+  assert.equal(container.childNodes.length, 0);
+  dom.window.close();
+});
+
+test("los colores representan tercios exactos del mayor gasto", () => {
+  const dom = new JSDOM("<div></div>");
+  const container = dom.window.document.querySelector("div");
+  horizontalBarChart(container, [300n, 200n, 199n, 100n, 99n].map((value) => ({
+    name: String(value), value, detail: [],
+  })), String);
+  const bars = [...container.querySelectorAll(".horizontal-bar")];
+  assert.deepEqual(bars.map((bar) => bar.className), [
+    "horizontal-bar horizontal-level-high",
+    "horizontal-bar horizontal-level-high",
+    "horizontal-bar horizontal-level-medium",
+    "horizontal-bar horizontal-level-medium",
+    "horizontal-bar horizontal-level-low",
+  ]);
+  assert.match(bars[4].getAttribute("aria-label"), /Nivel relativo: Bajo/);
+  bars[2].focus();
+  assert.match(container.querySelector(".horizontal-bar-tooltip").textContent, /Nivel relativo: Medio/);
+  horizontalBarChart(container, [{ name: "Igual", value: 99999999999999n, detail: [] },
+    { name: "Otro", value: 99999999999999n, detail: [] }], String);
+  assert.equal(container.querySelectorAll(".horizontal-level-high.horizontal-bar").length, 2);
+  dom.window.close();
+});
+
 test("el gráfico temporal representa valores positivos y negativos sobre una escala común", () => {
   const dom = new JSDOM("<div></div>");
   const container = dom.window.document.querySelector("div");
@@ -146,6 +199,24 @@ test("los puntos muestran los valores del mes con mouse, teclado o toque", () =>
   lineChart(container, ["Ene"], [{ name: "Saldo", values: [0n] }], String);
   dom.window.document.querySelector("#outside").dispatchEvent(new dom.window.Event("pointerdown", { bubbles: true }));
   assert.equal(container.querySelector(".visualization-point-target"), null);
+  dom.window.close();
+});
+
+test("los saldos desconocidos no se dibujan como cero ni conectan períodos sin datos", () => {
+  const dom = new JSDOM("<div></div>");
+  const container = dom.window.document.querySelector("div");
+  lineChart(container, ["Ene", "Feb", "Mar", "Abr"], [
+    { name: "Total", values: [0n, 100n, 0n, 200n] },
+    { name: "Cuenta", values: [null, 100n, null, 200n] },
+  ], String, { pointDetails: true });
+  const lines = [...container.querySelectorAll("polyline")];
+  assert.equal(lines.length, 3);
+  assert.equal(lines[1].getAttribute("points").split(" ").length, 1);
+  assert.equal(lines[2].getAttribute("points").split(" ").length, 1);
+  assert.equal(container.querySelectorAll(".visualization-point-target").length, 6);
+  const first = container.querySelector(".visualization-point-target");
+  first.focus();
+  assert.match(container.querySelector(".line-tooltip").textContent, /Ene.*Cuenta: Sin datos/);
   dom.window.close();
 });
 

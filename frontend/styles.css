@@ -135,6 +135,18 @@ li { border-top: 1px solid #edf1ed; padding: 15px 0; }
 .visualization-tooltip strong, .visualization-tooltip span { display: block; }
 .visualization-tooltip strong { margin-bottom: 5px; }
 .visualization-tooltip span { margin-top: 3px; color: #51685a; }
+.horizontal-bar-plot { position: relative; }
+.horizontal-bar-legend { margin-bottom: 10px; }
+.horizontal-level-low { --bar-color: #368b5f; --bar-hover-color: #256c47; }
+.horizontal-level-medium { --bar-color: #d3a622; --bar-hover-color: #a97c0c; }
+.horizontal-level-high { --bar-color: #b94a48; --bar-hover-color: #a53d3d; }
+.visualization-marker[class*="horizontal-level-"] { background: var(--bar-color); }
+.horizontal-bar-item { padding: 10px 0; border: 0; }
+.horizontal-bar-label { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 7px; font-size: 13px; }
+.horizontal-bar-label span { min-width: 0; overflow-wrap: anywhere; }
+.horizontal-bar-label strong { white-space: nowrap; }
+.horizontal-bar, .horizontal-bar:hover { display: block; min-width: 8px; height: 22px; padding: 0; border: 0; border-radius: 5px; background: var(--bar-color); transition: transform .18s ease, box-shadow .18s ease, background .18s ease; }
+.horizontal-bar:hover, .horizontal-bar:focus-visible { background: var(--bar-hover-color); transform: translateY(-4px); box-shadow: 0 6px 12px #1d322840; }
 .budget-plot-labels { display: flex; }
 .budget-plot-labels span { flex: 1 1 0; min-width: 0; padding: 7px 5px 0; font-size: 12px; text-align: center; overflow-wrap: anywhere; }
 .budget-chart-exceptions strong { overflow-wrap: anywhere; }
@@ -189,7 +201,8 @@ li { border-top: 1px solid #edf1ed; padding: 15px 0; }
 .visualization-data { margin: 14px 0; }
 .visualization-data summary { font-size: 13px; }
 @media (prefers-reduced-motion: reduce) {
-  .visualization-tooltip, .category-pie-slice { transition: none; }
+  .visualization-tooltip, .category-pie-slice, .horizontal-bar { transition: none; }
+  .horizontal-bar:hover, .horizontal-bar:focus-visible { transform: none; }
 }
 @media (max-width: 900px) {
   .category-evolution .visualization-hint { display: block; }

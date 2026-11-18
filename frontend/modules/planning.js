@@ -1,6 +1,6 @@
-import { displayName, monthInput, state } from "./common.js?v=14";
-import { loadOptions } from "./movements.js?v=14";
-import { loadExpenses } from "./expenses.js?v=14";
+import { displayName, monthInput, state } from "./common.js?v=17";
+import { loadOptions } from "./movements.js?v=17";
+import { loadExpenses } from "./expenses.js?v=17";
 const budgetPeriod = document.querySelector("#budget-period");
 const categoryStatus = document.querySelector("#category-status");
 const managedCategories = document.querySelector("#managed-categories");

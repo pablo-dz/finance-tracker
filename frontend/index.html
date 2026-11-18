@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Mis finanzas</title>
-  <link rel="stylesheet" href="/styles.css?v=14">
-  <script src="/dashboard.js?v=14" type="module"></script>
+  <link rel="stylesheet" href="/styles.css?v=17">
+  <script src="/dashboard.js?v=17" type="module"></script>
 </head>
 <body>
   <header>
@@ -127,18 +127,14 @@
         </details>
         <details class="dashboard-section">
           <summary>Evolución de saldos por cuenta</summary>
-          <p>Saldo conjunto de las cuentas activas en CLP, incluidos sus ajustes. Antes de la fecha inicial, el saldo de esa cuenta se desconoce y no se incluye. No incluye otros activos ni deudas.</p>
+          <p>Saldos de cada cuenta activa en CLP y su total, incluidos los ajustes. Antes de la fecha inicial, el saldo se desconoce y no se incluye en el total. Señala, toca o enfoca un punto para ver el detalle. No incluye otros activos ni deudas.</p>
           <div id="dashboard-balance-chart" class="visualization"></div>
-          <details class="visualization-data"><summary>Ver saldos mensuales</summary>
-          <ul id="dashboard-balances"></ul>
-          </details>
+          <ul id="dashboard-balances" class="visually-hidden" aria-label="Saldos mensuales por cuenta"></ul>
         </details>
         <details class="dashboard-section">
-          <summary>Mayores gastos y comercios</summary>
-          <h3>Mayores gastos del mes</h3>
-          <ul id="dashboard-top"></ul>
-          <h3>Comercios por monto gastado</h3>
-          <ul id="dashboard-merchants"></ul>
+          <summary>Mayores gastos del mes</summary>
+          <p>Los colores comparan cada gasto con el mayor del mes. Señala, toca o enfoca una barra para ver su detalle.</p>
+          <div id="dashboard-top-chart" class="visualization"></div>
         </details>
         </div>
       </section>

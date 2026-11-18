@@ -1,5 +1,5 @@
-import { displayName, formatMoney, state } from "./common.js?v=14";
-import { budgetChart, lineChart, pieChart3D } from "./visualizations.js?v=14";
+import { displayName, formatMoney, state } from "./common.js?v=17";
+import { budgetChart, horizontalBarChart, lineChart, pieChart3D } from "./visualizations.js?v=17";
 
 const status = document.querySelector("#dashboard-status");
 const content = document.querySelector("#dashboard-content");
@@ -18,8 +18,7 @@ const paceChart = document.querySelector("#dashboard-pace-chart");
 const goalList = document.querySelector("#dashboard-goals");
 const balanceList = document.querySelector("#dashboard-balances");
 const balanceChart = document.querySelector("#dashboard-balance-chart");
-const topList = document.querySelector("#dashboard-top");
-const merchantsList = document.querySelector("#dashboard-merchants");
+const topChart = document.querySelector("#dashboard-top-chart");
 
 let requestId = 0;
 let dashboardData = null;
@@ -285,38 +284,33 @@ function renderGoals(goals) {
 
 function renderBalances(data) {
   const rows = data.balances.slice(-Number(period.value));
-  lineChart(balanceChart, rows.map((row) => row.month),
-    [{ name: "Saldo total", values: rows.map((row) => cents(row.balance)) }], money);
-  const max = rows.map((row) => cents(row.balance)).reduce((value, amount) => {
-    const magnitude = amount < 0n ? -amount : amount;
-    return magnitude > value ? magnitude : value;
-  }, 0n);
-  balanceList.replaceChildren();
+  const accounts = new Map();
   for (const row of rows) {
-    const item = node("li", undefined, "dashboard-chart-item");
-    item.append(node("strong", `${row.month}: ${formatMoney(row.balance)}`),
-      bar(cents(row.balance), max, cents(row.balance) < 0n ? "expense" : ""));
-    balanceList.append(item);
+    for (const account of row.accounts) accounts.set(account.id, account.name);
+  }
+  const series = [
+    { name: "Saldo total", values: rows.map((row) => cents(row.balance)) },
+    ...[...accounts].map(([id, name]) => ({
+      name, values: rows.map((row) => {
+        const account = row.accounts.find((entry) => entry.id === id);
+        return account && account.balance !== null ? cents(account.balance) : null;
+      }),
+    })),
+  ];
+  lineChart(balanceChart, rows.map((row) => row.month), series, money, { pointDetails: true });
+  balanceList.replaceChildren();
+  for (const [index, row] of rows.entries()) {
+    const details = series.map((entry) => `${entry.name}: ${entry.values[index] === null ? "Sin datos" : money(entry.values[index])}`);
+    balanceList.append(node("li", `${row.month}: ${details.join(" · ")}`));
   }
 }
 
 function renderTop(data) {
-  topList.replaceChildren();
-  if (!data.topExpenses.length) empty(topList, "No hay gastos para este mes.");
-  const maxExpense = data.topExpenses.reduce((max, entry) => cents(entry.amount) > max ? cents(entry.amount) : max, 0n);
-  for (const entry of data.topExpenses) {
-    const item = node("li", `${entry.name} · ${entry.date.split("-").reverse().join("/")} · ${formatMoney(entry.amount)}`);
-    item.append(bar(cents(entry.amount), maxExpense, "expense"));
-    topList.append(item);
-  }
-  merchantsList.replaceChildren();
-  if (!data.merchants.length) empty(merchantsList, "No hay comercios para este mes.");
-  const maxMerchant = data.merchants.reduce((max, entry) => cents(entry.amount) > max ? cents(entry.amount) : max, 0n);
-  for (const entry of data.merchants) {
-    const item = node("li", `${entry.name} · ${entry.count} ${entry.count === 1 ? "gasto" : "gastos"} · ${formatMoney(entry.amount)}`);
-    item.append(bar(cents(entry.amount), maxMerchant));
-    merchantsList.append(item);
-  }
+  horizontalBarChart(topChart, data.topExpenses.map((entry) => ({
+    name: entry.name, value: cents(entry.amount),
+    detail: [`Fecha: ${entry.date.split("-").reverse().join("/")}`, `Monto: ${formatMoney(entry.amount)}`],
+  })), money);
+  if (!data.topExpenses.length) topChart.append(node("p", "No hay gastos para este mes.", "dashboard-empty"));
 }
 
 async function request(path, options) {

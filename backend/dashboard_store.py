@@ -189,11 +189,11 @@ class DashboardStore:
                      SELECT * FROM finance.account
                      WHERE household_id = %(household)s AND currency = 'CLP' AND is_active
                        AND (member_id IS NULL OR member_id = %(member)s)
-                   )
-                   SELECT to_char(m.start, 'YYYY-MM') AS month,
-                     coalesce(sum((CASE WHEN a.opening_date IS NULL
-                                           OR a.opening_date < least(m.start + interval '1 month', current_date + 1)
-                                        THEN a.opening_balance ELSE 0 END)
+                   ), account_balances AS (
+                     SELECT m.start, a.account_id, a.name,
+                       CASE WHEN NOT a.opening_configured OR
+                                 (a.opening_date IS NOT NULL AND a.opening_date >= least(m.start + interval '1 month', current_date + 1))
+                            THEN NULL ELSE a.opening_balance
                        + coalesce((SELECT sum(CASE t.type WHEN 'income' THEN t.amount ELSE -t.amount END)
                            FROM finance.transactions t WHERE t.household_id = a.household_id
                              AND t.account_id = a.account_id AND t.member_id = %(member)s
@@ -206,8 +206,15 @@ class DashboardStore:
                        + coalesce((SELECT sum(adj.amount) FROM finance.account_balance_adjustment adj
                            WHERE adj.household_id = a.household_id AND adj.account_id = a.account_id
                              AND adj.member_id = %(member)s
-                             AND adj.adjustment_date < least(m.start + interval '1 month', current_date + 1)), 0)), 0)::text AS balance
-                   FROM months m LEFT JOIN accounts a ON true GROUP BY m.start ORDER BY m.start""",
+                             AND adj.adjustment_date < least(m.start + interval '1 month', current_date + 1)), 0)
+                       END AS balance
+                     FROM months m CROSS JOIN accounts a
+                   )
+                   SELECT to_char(m.start, 'YYYY-MM') AS month, coalesce(sum(ab.balance), 0)::text AS balance,
+                     coalesce(json_agg(json_build_object('id', ab.account_id, 'name', ab.name, 'balance', ab.balance::text)
+                       ORDER BY ab.name, ab.account_id) FILTER (WHERE ab.account_id IS NOT NULL), '[]'::json) AS accounts
+                   FROM months m LEFT JOIN account_balances ab ON ab.start = m.start
+                   GROUP BY m.start ORDER BY m.start""",
                 params,
             ).fetchall()
         for item in monthly:

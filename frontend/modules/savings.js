@@ -1,7 +1,7 @@
 import {
   todayText, formatMoney, moneyInCents, formatCents,
-} from "./common.js?v=14";
-import { refreshDashboard } from "./analytics.js?v=14";
+} from "./common.js?v=17";
+import { refreshDashboard } from "./analytics.js?v=17";
 
 const savingsStatus = document.querySelector("#savings-status");
 const savingsEmpty = document.querySelector("#savings-empty");

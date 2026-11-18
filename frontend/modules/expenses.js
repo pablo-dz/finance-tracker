@@ -2,10 +2,10 @@ import {
   monthInput, movementStatus, expenseForm, formMessage,
   saveButton, todayText,
   formatMoney, state,
-} from "./common.js?v=14";
-import { loadMovementHistory, refreshAccounts } from "./movements.js?v=14";
-import { beginBudgetLoad, budgetLoadFailed, loadBudgets, selectMovementMonth } from "./planning.js?v=14";
-import { loadDashboard } from "./analytics.js?v=14";
+} from "./common.js?v=17";
+import { loadMovementHistory, refreshAccounts } from "./movements.js?v=17";
+import { beginBudgetLoad, budgetLoadFailed, loadBudgets, selectMovementMonth } from "./planning.js?v=17";
+import { loadDashboard } from "./analytics.js?v=17";
 
 const message = document.querySelector("#message");
 const results = document.querySelector("#results");

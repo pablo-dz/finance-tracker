@@ -143,6 +143,10 @@ class MovementIntegrationTest(unittest.TestCase):
         result = self.client.get("/api/dashboard?mes=2020-06").json()
         self.assertEqual(result["current"]["saving"], "1300.00")
         self.assertEqual(result["balances"][-1]["balance"], "2300.00")
+        self.assertEqual(result["balances"][-1]["accounts"], [
+            {"id": self.second_account, "name": "Ahorro", "balance": "500.25"},
+            {"id": account, "name": "Cuenta principal", "balance": "1799.75"},
+        ])
         self.assertEqual(result["daily"][-1], {"day": 5, "budgeted": "0", "unbudgeted": "200.00"})
         self.assertIsNone(next(row for row in result["budgets"] if row["categoryId"] == other_category)["budget"])
         self.assertEqual(self.write(self.client, "DELETE", "/api/recurrentes", {"id": item["id"]}).status_code, 200)
@@ -270,6 +274,9 @@ class MovementIntegrationTest(unittest.TestCase):
         self.assertEqual(self.write(self.other, "DELETE", "/api/cuentas/ajustes", {"id": rows[0]["id"]}).status_code, 404)
         result = self.client.get("/api/dashboard?mes=2020-07").json()
         self.assertEqual([row["balance"] for row in result["balances"][-3:]], ["0.00", "150.00", "124.50"])
+        self.assertIsNone(next(a for a in result["balances"][-3]["accounts"] if a["id"] == account)["balance"])
+        self.assertEqual(next(a for a in result["balances"][-2]["accounts"] if a["id"] == account)["balance"], "150.00")
+        self.assertEqual(next(a for a in result["balances"][-1]["accounts"] if a["id"] == account)["balance"], "124.50")
         self.assertEqual(result["current"]["income"], "0")
         current = next(a for a in self.client.get("/api/opciones").json()["accounts"] if a["id"] == account)
         self.assertEqual(current["balance"], "124.50")
