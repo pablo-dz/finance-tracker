@@ -21,7 +21,7 @@ export function budgetChart(container, entries, format) {
   const max = entries.reduce((largest, entry) =>
     [largest, entry.limit, entry.spent].reduce((a, b) => a > b ? a : b), 0n);
   const height = 240;
-  const width = entries.length * 140;
+  const width = entries.length * 120;
   const barHeight = (value) => max === 0n ? 0 : Number(value * 1000000n / max) * height / 1000000;
   const legend = text(document, "div", "", "visualization-legend");
   for (const [label, className] of [
@@ -54,7 +54,7 @@ export function budgetChart(container, entries, format) {
   }
   const labels = text(document, "div", "", "budget-plot-labels");
   entries.forEach((entry, index) => {
-    const center = index * 140 + 70;
+    const center = index * 120 + 60;
     const limitHeight = barHeight(entry.limit);
     const spentHeight = barHeight(entry.spent);
     const limit = svgElement(document, "rect", {

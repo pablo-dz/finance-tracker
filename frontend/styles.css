@@ -128,21 +128,29 @@ li { border-top: 1px solid #edf1ed; padding: 15px 0; }
 .dashboard-bar.budget-level-warning { background: #bf7a13; }
 .budget-level-warning { color: #8a5708 !important; }
 .budget-level-exceeded, .budget-level-limit { color: #a53d3d !important; }
-.budget-chart { margin: 18px 0; }
+.budget-chart, .visualization, .visualization-composition {
+  min-width: 0;
+  margin: 18px 0;
+  padding: 18px;
+  border: 1px solid #e1e9e1;
+  border-radius: 10px;
+  background: #f9fbf9;
+}
+.visualization:empty, .visualization-composition:empty { display: none; }
 .budget-legend-limit { background: #d6e0d8; border: 1px solid #849b89; }
 .budget-legend-within, .budget-column-within { fill: #368b5f; background: #368b5f; }
 .budget-legend-exceeded, .budget-column-exceeded { fill: #b94a48; background: #b94a48; }
 .budget-column-limit { fill: #d6e0d8; stroke: #849b89; stroke-width: 1; }
 .budget-chart-hint { color: #64766a; font-size: 12px; margin: 10px 0; }
-.budget-plot { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 10px; }
-.budget-y-axis { position: relative; height: 240px; color: #51685a; font-size: 11px; text-align: right; }
+.budget-plot { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 10px; padding-top: 10px; }
+.budget-y-axis { position: relative; height: 240px; margin-top: 1px; color: #51685a; font-size: 11px; text-align: right; }
 .budget-y-axis span { display: block; white-space: nowrap; }
 .budget-axis-width { visibility: hidden; }
 .budget-y-axis span:not(.budget-axis-width) { position: absolute; right: 0; }
-.budget-tick-top { top: 0; }
+.budget-tick-top { top: 0; transform: translateY(-50%); }
 .budget-tick-middle { top: 50%; transform: translateY(-50%); }
-.budget-tick-bottom { bottom: 0; }
-.budget-plot-scroll { overflow-x: auto; }
+.budget-tick-bottom { bottom: 0; transform: translateY(50%); }
+.budget-plot-scroll { overflow-x: auto; padding: 1px 1px 0; }
 .budget-plot-svg { display: block; width: 100%; height: 240px; overflow: visible; }
 .budget-plot-labels { display: flex; }
 .budget-plot-labels span { flex: 1 1 0; min-width: 0; padding: 7px 5px 0; font-size: 12px; text-align: center; overflow-wrap: anywhere; }
@@ -157,7 +165,6 @@ li { border-top: 1px solid #edf1ed; padding: 15px 0; }
 #recurring-form { border-top: 1px solid #edf1ed; padding-top: 14px; }
 #recurring-form .form-actions { margin-top: 12px; }
 .dashboard-empty { color: #6d8072; font-size: 13px; }
-.visualization { margin: 18px 0; }
 .visualization-legend { display: flex; flex-wrap: wrap; gap: 14px; }
 .visualization-key { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; }
 .visualization-marker { display: inline-block; flex: 0 0 11px; width: 11px; height: 11px; border-radius: 2px; }
@@ -168,11 +175,11 @@ li { border-top: 1px solid #edf1ed; padding: 15px 0; }
 .visualization-line text { font-size: 11px; fill: #51685a; }
 .visualization-grid { stroke: #e1e9e1; stroke-width: 1; }
 .visualization-zero { stroke: #829589; stroke-width: 1.5; stroke-dasharray: 4 3; }
-.visualization-composition { display: flex; flex-wrap: wrap; align-items: center; gap: 20px; margin: 18px 0; }
+.visualization-composition { display: flex; flex-wrap: wrap; align-items: center; gap: 20px; }
 .visualization-donut { width: 180px; height: 180px; flex: 0 0 180px; }
 .visualization-donut-legend { flex: 1 1 220px; min-width: 0; }
 .visualization-donut-item { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 12px; padding: 8px 0; font-size: 13px; }
-.visualization-donut-item strong { white-space: nowrap; }
+.visualization-donut-item strong { overflow-wrap: anywhere; }
 .visualization-data { margin: 14px 0; }
 .visualization-data summary { font-size: 13px; }
 @media (max-width: 600px) {
@@ -189,5 +196,6 @@ li { border-top: 1px solid #edf1ed; padding: 15px 0; }
   .goal-summary span:last-child { text-align: left; }
   .other-movement { flex-direction: column; gap: 6px; }
   .dashboard-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .budget-chart, .visualization, .visualization-composition { padding: 14px; }
   .visualization-hint { display: block; }
 }
