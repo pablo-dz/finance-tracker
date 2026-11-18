@@ -6,6 +6,7 @@ from fastapi import Depends, FastAPI, Request
 from fastapi.responses import FileResponse
 from starlette.concurrency import run_in_threadpool
 
+from . import config
 from .auth import COOKIE_NAME, SESSION_SECONDS, request_token, valid_credentials, verify_password
 from .request_helpers import json_response, read_json_body
 from .movements import router as movements_router
@@ -24,7 +25,8 @@ app.include_router(dashboard_router)
 
 
 def set_session_cookie(response, token):
-    response.set_cookie(COOKIE_NAME, token, max_age=SESSION_SECONDS, httponly=True, samesite="strict", path="/")
+    response.set_cookie(COOKIE_NAME, token, max_age=SESSION_SECONDS, httponly=True, samesite="strict",
+                        secure=config.PUBLIC_ORIGIN is not None, path="/")
 
 
 @app.exception_handler(psycopg.Error)
@@ -52,12 +54,19 @@ async def authenticate(action: str, request: Request, store: AuthStore = Depends
         if token:
             await run_in_threadpool(store.delete_session, token)
         response = json_response({"message": "Sesión cerrada."})
-        response.delete_cookie(COOKIE_NAME, httponly=True, samesite="strict", path="/")
+        response.delete_cookie(COOKIE_NAME, httponly=True, samesite="strict",
+                               secure=config.PUBLIC_ORIGIN is not None, path="/")
         return response
     if not valid_credentials(body):
         return json_response({"error": "Ingresa un correo válido y una contraseña de entre 12 y 128 caracteres."}, 400)
     email = body["email"].strip().lower()
     password = body["password"]
+    if config.PUBLIC_ORIGIN:
+        retry_after = await run_in_threadpool(store.auth_retry_after, email)
+        if retry_after is not None:
+            response = json_response({"error": "Demasiados intentos. Inténtalo más tarde."}, 429)
+            response.headers["Retry-After"] = str(retry_after)
+            return response
     if action == "register":
         try:
             token = await run_in_threadpool(store.register, email, password)

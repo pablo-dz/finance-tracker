@@ -1,3 +1,4 @@
+import hashlib
 import os
 
 import psycopg
@@ -30,6 +31,26 @@ def connect():
 class AuthStore:
     def __init__(self, connection_factory=connect):
         self.connection_factory = connection_factory
+
+    def auth_retry_after(self, email):
+        account_bucket = "account:" + hashlib.sha256(email.encode("utf-8")).hexdigest()
+        with self.connection_factory() as conn:
+            for bucket, limit, seconds in (("global", 60, 60), (account_bucket, 10, 900)):
+                row = conn.execute(
+                    "INSERT INTO finance.auth_throttle (bucket, attempts, expires_at) "
+                    "VALUES (%s, 1, now() + make_interval(secs => %s)) "
+                    "ON CONFLICT (bucket) DO UPDATE SET "
+                    "attempts = CASE WHEN finance.auth_throttle.expires_at <= now() "
+                    "THEN 1 ELSE finance.auth_throttle.attempts + 1 END, "
+                    "expires_at = CASE WHEN finance.auth_throttle.expires_at <= now() "
+                    "THEN EXCLUDED.expires_at ELSE finance.auth_throttle.expires_at END "
+                    "RETURNING attempts, GREATEST(1, CEIL(EXTRACT(EPOCH FROM expires_at - now())))::integer AS retry_after",
+                    (bucket, seconds),
+                ).fetchone()
+                if row["attempts"] > limit:
+                    return row["retry_after"]
+            conn.execute("DELETE FROM finance.auth_throttle WHERE expires_at <= now()")
+        return None
 
     def register(self, email, password):
         password_hash = hash_password(password)

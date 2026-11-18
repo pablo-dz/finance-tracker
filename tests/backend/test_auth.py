@@ -1,10 +1,15 @@
 import json
+import os
+import subprocess
+import sys
 import unittest
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
 from backend.app import app, get_store
 from backend.auth import hash_password, token_hash, verify_password
+from backend.config import parse_public_origin
 
 
 NODE_HASH = (
@@ -18,6 +23,10 @@ class FakeStore:
     def __init__(self):
         self.users = {}
         self.sessions = {}
+        self.retry_after = None
+
+    def auth_retry_after(self, email):
+        return self.retry_after
 
     def register(self, email, password):
         self.users[email] = {"user_id": 1, "email": email, "password_hash": hash_password(password)}
@@ -98,6 +107,56 @@ class AuthenticationTest(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 413)
         self.assertEqual(self.store.users, {})
+
+    def test_https_origin_requires_exact_host_and_sets_secure_cookie(self):
+        credentials = {"email": "person@example.com", "password": "correct horse battery"}
+        with patch("backend.config.PUBLIC_ORIGIN", "https://tracker.example.com"):
+            with TestClient(app, base_url="https://tracker.example.com") as client:
+                for headers in (
+                    {"Origin": "https://evil.example.com"},
+                    {"Origin": "https://tracker.example.com", "Host": "evil.example.com"},
+                    {"Origin": "http://tracker.example.com"},
+                    {"Origin": "https://evil.example.com", "X-Forwarded-Host": "tracker.example.com"},
+                    {},
+                ):
+                    self.assertEqual(client.post("/api/auth/register", headers=headers, json=credentials).status_code, 403)
+                response = client.post("/api/auth/register", headers={"Origin": "https://tracker.example.com"}, json=credentials)
+                self.assertEqual(response.status_code, 201)
+                self.assertIn("Secure", response.headers["set-cookie"])
+                self.assertIn("HttpOnly", response.headers["set-cookie"])
+                self.assertIn("SameSite=strict", response.headers["set-cookie"])
+                logout = client.post("/api/auth/logout", headers={"Origin": "https://tracker.example.com"}, json={})
+                self.assertIn("Secure", logout.headers["set-cookie"])
+
+    def test_public_origin_configuration_rejects_unsafe_values(self):
+        self.assertIsNone(parse_public_origin(None))
+        self.assertEqual(parse_public_origin("https://tracker.onrender.com"), "https://tracker.onrender.com")
+        for value in ("http://tracker.example.com", "https://tracker.example.com/", "https://a.example/path",
+                      "https://user:pass@example.com", "https://a.example?x=1", "https://a.example:8080",
+                      "https://a..example", "https://localhost", "https://a.example:", "https://a.example#fragment"):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                parse_public_origin(value)
+
+    def test_remote_mode_without_database_url_fails_at_startup(self):
+        env = os.environ.copy()
+        env["PUBLIC_ORIGIN"] = "https://tracker.example.com"
+        env.pop("DATABASE_URL", None)
+        result = subprocess.run([sys.executable, "-c", "import backend.config"], env=env,
+                                capture_output=True, text=True, check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("DATABASE_URL es obligatoria", result.stderr)
+
+    def test_remote_authentication_rejects_limited_attempts_before_accessing_accounts(self):
+        self.store.retry_after = 42
+        credentials = {"email": "person@example.com", "password": "correct horse battery"}
+        with patch("backend.config.PUBLIC_ORIGIN", "https://tracker.example.com"):
+            with TestClient(app, base_url="https://tracker.example.com") as client:
+                for action in ("register", "login"):
+                    response = client.post(f"/api/auth/{action}",
+                                           headers={"Origin": "https://tracker.example.com"}, json=credentials)
+                    self.assertEqual(response.status_code, 429)
+                    self.assertEqual(response.headers["retry-after"], "42")
+                self.assertEqual(self.store.users, {})
 
 
 if __name__ == "__main__":
