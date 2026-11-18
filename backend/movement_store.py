@@ -22,7 +22,9 @@ class MovementStore:
         with self.connection_factory() as conn:
             accounts = conn.execute(
                 """SELECT a.account_id AS id, a.name, a.opening_balance::text AS "openingBalance",
-                   (a.opening_balance + COALESCE(SUM(CASE t.type WHEN 'income' THEN t.amount
+                   a.opening_configured AS "openingConfigured", a.opening_date::text AS "openingDate",
+                   ((CASE WHEN a.opening_date IS NULL OR a.opening_date <= CURRENT_DATE
+                          THEN a.opening_balance ELSE 0 END) + COALESCE(SUM(CASE t.type WHEN 'income' THEN t.amount
                        WHEN 'expense' THEN -t.amount ELSE 0 END), 0)
                      + COALESCE((
                        SELECT SUM(CASE WHEN tr.source_account_id = a.account_id THEN -tr.amount ELSE tr.amount END)
@@ -30,6 +32,10 @@ class MovementStore:
                        WHERE tr.household_id = a.household_id AND tr.member_id = %(member)s
                          AND tr.tx_date <= CURRENT_DATE
                          AND (tr.source_account_id = a.account_id OR tr.destination_account_id = a.account_id)
+                     ), 0) + COALESCE((
+                       SELECT SUM(adj.amount) FROM finance.account_balance_adjustment adj
+                       WHERE adj.household_id = a.household_id AND adj.member_id = %(member)s
+                         AND adj.account_id = a.account_id AND adj.adjustment_date <= CURRENT_DATE
                      ), 0))::text AS balance
                    FROM finance.account a
                    LEFT JOIN finance.transactions t ON t.household_id = a.household_id AND t.account_id = a.account_id
@@ -133,6 +139,7 @@ class MovementStore:
             "amount": body["amount"], "merchant": body["merchant"].strip(), "id": body.get("id"),
         }
         account = """a.household_id = h.household_id AND a.account_id = %(account)s
+                     AND a.opening_configured AND (a.opening_date IS NULL OR %(date)s::date >= a.opening_date)
                      AND a.is_active AND a.currency = 'CLP' AND (a.member_id IS NULL OR a.member_id = m.member_id)"""
         category = """c.household_id = h.household_id AND c.category_id = %(category)s AND c.kind = %(kind)s
                       AND (%(kind)s <> 'expense' OR c.is_active)"""
@@ -170,8 +177,10 @@ class MovementStore:
             "date": body["date"], "amount": body["amount"], "note": body.get("note", "").strip(), "id": body.get("id"),
         }
         source = """src.household_id = h.household_id AND src.account_id = %(source)s
+                    AND src.opening_configured AND (src.opening_date IS NULL OR %(date)s::date >= src.opening_date)
                     AND src.is_active AND src.currency = 'CLP' AND (src.member_id IS NULL OR src.member_id = m.member_id)"""
         destination = """dst.household_id = h.household_id AND dst.account_id = %(destination)s
+                         AND dst.opening_configured AND (dst.opening_date IS NULL OR %(date)s::date >= dst.opening_date)
                          AND dst.is_active AND dst.currency = src.currency
                          AND (dst.member_id IS NULL OR dst.member_id = m.member_id)"""
         common = """h.household_id = %(household)s AND h.base_currency = 'CLP' AND h.name <> '[DEMO] Hogar de prueba'

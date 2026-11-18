@@ -29,6 +29,7 @@ def balance_amount(value):
 @router.api_route("/api/metas/aportes", methods=["POST", "DELETE"])
 @router.api_route("/api/reportes", methods=["GET"])
 @router.api_route("/api/cuentas/saldo-inicial", methods=["PUT"])
+@router.api_route("/api/cuentas/ajustes", methods=["GET", "POST", "DELETE"])
 async def financial(request: Request, store: AuthStore = Depends(get_store),
                     movements: MovementStore = Depends(get_movement_store),
                     financial_store: FinancialStore = Depends(get_financial_store)):
@@ -58,10 +59,18 @@ async def financial(request: Request, store: AuthStore = Depends(get_store),
         elif path == "/api/metas/aportes":
             valid = isinstance(body, dict) and valid_id(body.get("id"))
             message = "El identificador del aporte no es válido."
-        else:
+        elif path == "/api/cuentas/saldo-inicial":
             valid = (isinstance(body, dict) and valid_option_id(body.get("accountId"))
-                     and balance_amount(body.get("amount")) and balance_amount(body.get("expectedAmount")))
-            message = "Ingresa un saldo inicial válido para la cuenta."
+                     and balance_amount(body.get("amount")) and valid_date(body.get("date")))
+            message = "Ingresa un saldo inicial y una fecha válidos para la cuenta."
+        elif method == "POST":
+            valid = (isinstance(body, dict) and valid_option_id(body.get("accountId"))
+                     and balance_amount(body.get("amount")) and float(body["amount"]) != 0
+                     and valid_date(body.get("date")) and valid_text(body.get("reason"), True))
+            message = "Ingresa una cuenta, diferencia distinta de cero, fecha y motivo válidos."
+        else:
+            valid = isinstance(body, dict) and valid_id(body.get("id"))
+            message = "El identificador del ajuste no es válido."
         if not valid:
             return json_response({"error": message}, 400)
 
@@ -75,6 +84,16 @@ async def financial(request: Request, store: AuthStore = Depends(get_store),
     if path == "/api/reportes":
         report = await run_in_threadpool(financial_store.report, member, month[0], months[0])
         return json_response({"month": month[0], "months": int(months[0]), **report})
+    if path == "/api/cuentas/ajustes":
+        if method == "GET":
+            return json_response({"adjustments": await run_in_threadpool(financial_store.adjustments, member)})
+        if method == "POST":
+            if not await run_in_threadpool(financial_store.create_adjustment, member, body):
+                return json_response({"error": "La cuenta no está disponible o la fecha es anterior a su inicio."}, 409)
+            return json_response({"message": "Ajuste registrado correctamente."}, 201)
+        if not await run_in_threadpool(financial_store.delete_adjustment, member, body["id"]):
+            return json_response({"error": "El ajuste no existe o ya no está disponible."}, 404)
+        return json_response({"message": "Ajuste eliminado correctamente."})
     if path == "/api/metas":
         if not await run_in_threadpool(financial_store.create_goal, member, body):
             return json_response({"error": "No se pudo crear la meta en el hogar personal. Vuelve a consultar."}, 409)
@@ -88,5 +107,5 @@ async def financial(request: Request, store: AuthStore = Depends(get_store),
             return json_response({"error": "El aporte no existe o ya no está disponible."}, 404)
         return json_response({"message": "Aporte eliminado correctamente."})
     if not await run_in_threadpool(financial_store.update_opening_balance, member, body):
-        return json_response({"error": "La cuenta o su saldo inicial cambió. Vuelve a consultar antes de editarlo."}, 409)
-    return json_response({"message": "Saldo inicial actualizado correctamente."})
+        return json_response({"error": "La cuenta no está disponible o su saldo inicial ya fue configurado."}, 409)
+    return json_response({"message": "Saldo inicial configurado correctamente."})

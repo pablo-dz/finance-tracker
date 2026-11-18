@@ -162,9 +162,9 @@ async def edit_movement(request: Request, store: AuthStore = Depends(get_store),
     args = (member, body, method) if kind == "transfer" else (member, kind, body, method)
     if not await run_in_threadpool(write, *args):
         messages = {
-            "expense": "El gasto, la cuenta o la categoría no pertenece a tu configuración personal o ya no está disponible.",
-            "income": "El ingreso, la cuenta o la categoría no pertenece a tu configuración personal o ya no está disponible.",
-            "transfer": "La transferencia o sus cuentas no pertenecen a tu configuración personal o ya no están disponibles.",
+            "expense": "Revisa la cuenta y categoría. La cuenta debe estar disponible y tener saldo inicial configurado antes de la fecha del gasto.",
+            "income": "Revisa la cuenta y categoría. La cuenta debe estar disponible y tener saldo inicial configurado antes de la fecha del ingreso.",
+            "transfer": "Revisa las cuentas. Ambas deben estar disponibles y tener saldo inicial configurado antes de la fecha de la transferencia.",
         }
         return json_response({"error": messages[kind]}, 400)
     label = {"expense": "Gasto", "income": "Ingreso", "transfer": "Transferencia"}[kind]

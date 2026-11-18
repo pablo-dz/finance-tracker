@@ -101,15 +101,59 @@ class FinancialStore:
     def update_opening_balance(self, member, body):
         with self.connection_factory() as conn:
             return conn.execute(
-                """UPDATE finance.account a SET opening_balance = %(amount)s::numeric
+                """UPDATE finance.account a SET opening_balance = %(amount)s::numeric,
+                       opening_date = %(date)s::date, opening_configured = TRUE
                    FROM finance.household h, finance.member m
                    WHERE h.household_id = %(household)s AND h.base_currency = 'CLP' AND h.name <> '[DEMO] Hogar de prueba'
                      AND m.household_id = h.household_id AND m.member_id = %(member)s AND m.is_active
                      AND a.household_id = h.household_id AND a.account_id = %(account)s
                      AND a.is_active AND a.currency = 'CLP' AND (a.member_id IS NULL OR a.member_id = m.member_id)
-                     AND a.opening_balance = %(expected)s::numeric
+                     AND NOT a.opening_configured
                      AND (SELECT count(*) FROM finance.member WHERE household_id = h.household_id AND is_active) = 1
                    RETURNING a.account_id""",
                 {"household": member["household_id"], "member": member["member_id"], "account": body["accountId"],
-                 "amount": body["amount"], "expected": body["expectedAmount"]},
+                 "amount": body["amount"], "date": body["date"]},
+            ).fetchone() is not None
+
+    def adjustments(self, member):
+        with self.connection_factory() as conn:
+            return conn.execute(
+                """SELECT adj.adjustment_id::text AS id, adj.account_id AS "accountId", a.name AS account,
+                          adj.adjustment_date::text AS date, adj.amount::text AS amount, adj.reason
+                   FROM finance.account_balance_adjustment adj
+                   JOIN finance.account a ON a.account_id = adj.account_id AND a.household_id = adj.household_id
+                   WHERE adj.household_id = %(household)s AND adj.member_id = %(member)s
+                   ORDER BY adj.adjustment_date DESC, adj.adjustment_id DESC""",
+                {"household": member["household_id"], "member": member["member_id"]},
+            ).fetchall()
+
+    def create_adjustment(self, member, body):
+        with self.connection_factory() as conn:
+            return conn.execute(
+                """INSERT INTO finance.account_balance_adjustment
+                     (household_id, member_id, account_id, adjustment_date, amount, reason)
+                   SELECT h.household_id, m.member_id, a.account_id, %(date)s::date, %(amount)s::numeric, %(reason)s
+                   FROM finance.household h
+                   JOIN finance.member m ON m.household_id = h.household_id AND m.member_id = %(member)s AND m.is_active
+                   JOIN finance.account a ON a.household_id = h.household_id AND a.account_id = %(account)s
+                     AND a.is_active AND a.currency = 'CLP' AND (a.member_id IS NULL OR a.member_id = m.member_id)
+                     AND a.opening_configured AND (a.opening_date IS NULL OR %(date)s::date >= a.opening_date)
+                   WHERE h.household_id = %(household)s AND h.base_currency = 'CLP' AND h.name <> '[DEMO] Hogar de prueba'
+                     AND (SELECT count(*) FROM finance.member WHERE household_id = h.household_id AND is_active) = 1
+                   RETURNING adjustment_id""",
+                {"household": member["household_id"], "member": member["member_id"], "account": body["accountId"],
+                 "date": body["date"], "amount": body["amount"], "reason": body["reason"].strip()},
+            ).fetchone() is not None
+
+    def delete_adjustment(self, member, identifier):
+        with self.connection_factory() as conn:
+            return conn.execute(
+                """DELETE FROM finance.account_balance_adjustment adj USING finance.household h, finance.member m
+                   WHERE h.household_id = %(household)s AND h.base_currency = 'CLP' AND h.name <> '[DEMO] Hogar de prueba'
+                     AND m.household_id = h.household_id AND m.member_id = %(member)s AND m.is_active
+                     AND adj.household_id = h.household_id AND adj.member_id = m.member_id
+                     AND adj.adjustment_id = %(id)s::bigint
+                     AND (SELECT count(*) FROM finance.member WHERE household_id = h.household_id AND is_active) = 1
+                   RETURNING adj.adjustment_id""",
+                {"household": member["household_id"], "member": member["member_id"], "id": identifier},
             ).fetchone() is not None

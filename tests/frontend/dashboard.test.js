@@ -56,6 +56,7 @@ test("los módulos coordinan la sesión, los movimientos y la planificación", a
     otherBudgets: {},
     goals: [],
     categories: [{ id: 2, name: "Groceries", active: true, fixed: false }],
+    adjustments: [],
     dashboardBudgets: null,
     dashboardCategories: null,
     dashboardMonthly: null,
@@ -69,8 +70,8 @@ test("los módulos coordinan la sesión, los movimientos y la planificación", a
     categoryLoadGate: null,
   };
   const requests = [];
-  const account = { id: 1, name: "Cuenta principal", openingBalance: "0.00", balance: "0.00" };
-  const secondAccount = { id: 6, name: "Ahorro", openingBalance: "0.00", balance: "0.00" };
+  const account = { id: 1, name: "Cuenta principal", openingBalance: "0.00", openingConfigured: false, balance: "0.00" };
+  const secondAccount = { id: 6, name: "Ahorro", openingBalance: "0.00", openingConfigured: true, balance: "0.00" };
   const category = { id: 2, name: "Groceries" };
   const incomeCategory = { id: 3, name: "Salary" };
   setGlobal("fetch", async (path, options = {}) => {
@@ -130,7 +131,19 @@ test("los módulos coordinan la sesión, los movimientos y la planificación", a
       }
     } else if (url.pathname === "/api/cuentas/saldo-inicial") {
       account.openingBalance = body.amount;
-      result = { message: "Guardado." };
+      account.openingConfigured = true;
+      account.openingDate = body.date;
+      result = { message: "Saldo inicial configurado correctamente." };
+    } else if (url.pathname === "/api/cuentas/ajustes") {
+      if (method === "POST") {
+        data.adjustments.push({ ...body, account: "Cuenta principal", id: "1" });
+        result = { message: "Ajuste registrado correctamente." };
+      } else if (method === "DELETE") {
+        data.adjustments = data.adjustments.filter((item) => item.id !== body.id);
+        result = { message: "Ajuste eliminado correctamente." };
+      } else {
+        result = { adjustments: data.adjustments };
+      }
     } else if (url.pathname === "/api/gastos" && method !== "GET") {
       if (method === "DELETE") {
         data.expense = null;
@@ -272,6 +285,7 @@ test("los módulos coordinan la sesión, los movimientos y la planificación", a
   assert.equal(element("#user-email").textContent, "test@example.test");
   assert.equal(element("#dashboard-view").hidden, false);
   assert.equal(element("#movements-view").hidden, true);
+  assert.equal(element("#accounts-panel").hidden, true);
   assert.equal(element("#savings-panel").hidden, true);
   assert.equal(element("#nav-dashboard").getAttribute("aria-current"), "page");
   assert.equal(element("#budget-panel"), null);
@@ -547,13 +561,39 @@ test("los módulos coordinan la sesión, los movimientos y la planificación", a
   assert.match(element("#movements").textContent, /Compra/);
   assert.match(element("#transfer-movements").textContent, /Ahorro/);
 
+  element("#nav-accounts").click();
+  assert.equal(element("#nav-accounts").getAttribute("aria-current"), "page");
+  assert.equal(element("#movements-view").hidden, true);
+  assert.equal(element("#dashboard-view").hidden, true);
+  assert.equal(element("#accounts-panel").hidden, false);
+  assert.equal(element("#month-form").hidden, true);
+  assert.match(element("#accounts").textContent, /Cuenta principal/);
+  data.failExpenses = true;
+  submit("#month-form");
+  await waitFor(() => element("#message").textContent === "Gastos no disponibles.");
+  assert.equal(element("#accounts-panel").hidden, false);
+  data.failExpenses = false;
+
   field("#opening-balance-form", "amount", "1000");
+  field("#opening-balance-form", "date", "2020-06-01");
   submit("#opening-balance-form");
-  await waitFor(() => element("#opening-balance-message").textContent === "Saldo inicial actualizado correctamente.");
+  await waitFor(() => element("#opening-balance-message").textContent === "Saldo inicial configurado correctamente.");
   assert.ok(requests.some((request) => request.path === "/api/cuentas/saldo-inicial"
-    && request.body.expectedAmount === "0.00"));
+    && request.body.date === "2020-06-01"));
+  assert.equal(element("#opening-balance-form").hidden, true);
+  field("#balance-adjustment-form", "accountId", "1");
+  field("#balance-adjustment-form", "amount", "-50");
+  field("#balance-adjustment-form", "date", "2020-06-02");
+  field("#balance-adjustment-form", "reason", "Corrección");
+  submit("#balance-adjustment-form");
+  await waitFor(() => element("#balance-adjustments").textContent.includes("Corrección"));
+  assert.ok(requests.some((request) => request.path === "/api/cuentas/ajustes" && request.method === "POST"
+    && request.body.amount === "-50" && request.body.date === "2020-06-02"));
+  element('[aria-label="Eliminar ajuste Corrección de Cuenta principal del 2020-06-02"]').click();
+  await waitFor(() => element("#balance-adjustments").children.length === 0);
 
   element("#nav-categories").click();
+  assert.equal(element("#accounts-panel").hidden, true);
   assert.equal(element("#month-form").hidden, false);
   assert.equal(element("#dashboard-view").hidden, true);
   element("#month").value = "2024-12";

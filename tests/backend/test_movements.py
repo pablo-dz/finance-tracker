@@ -114,7 +114,9 @@ class MovementValidationTest(unittest.TestCase):
             ("POST", "/api/metas", {"name": "Viaje", "targetAmount": "100", "dueDate": "2023-02-29"}),
             ("POST", "/api/metas/aportes", {"goalId": 1, "amount": "1.5", "date": "2020-01-01"}),
             ("DELETE", "/api/metas/aportes", {"id": 1}),
-            ("PUT", "/api/cuentas/saldo-inicial", {"accountId": 1, "amount": "10", "expectedAmount": "abc"}),
+            ("PUT", "/api/cuentas/saldo-inicial", {"accountId": 1, "amount": "10", "date": "2023-02-29"}),
+            ("POST", "/api/cuentas/ajustes", {"accountId": 1, "amount": "0", "date": "2020-01-01", "reason": "Corrección"}),
+            ("POST", "/api/cuentas/ajustes", {"accountId": 1, "amount": "1", "date": "2020-01-01", "reason": " "}),
         ]
         for method, path, body in cases:
             with self.subTest(path=path, body=body):
@@ -153,9 +155,9 @@ class DashboardTest(unittest.TestCase):
                 self.assertEqual(response.status_code, 200)
                 self.assertTrue(response.headers["content-type"].startswith(content_type))
                 self.assertEqual(response.headers["cache-control"], "no-cache")
-            self.assertEqual(client.get("/styles.css?v=11").status_code, 200)
-            self.assertEqual(client.get("/dashboard.js?v=11").status_code, 200)
-            self.assertEqual(client.get("/modules/planning.js?v=11").status_code, 200)
+            self.assertEqual(client.get("/styles.css?v=12").status_code, 200)
+            self.assertEqual(client.get("/dashboard.js?v=13").status_code, 200)
+            self.assertEqual(client.get("/modules/planning.js?v=13").status_code, 200)
             self.assertEqual(client.get("/modules/reports.js").status_code, 404)
             self.assertEqual(client.get("/server.js").status_code, 404)
             self.assertEqual(client.get("/modules/unknown.js").status_code, 404)

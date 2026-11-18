@@ -21,6 +21,7 @@ Proyecto para entender ingresos, gastos, transferencias, presupuestos y metas de
 - `db/migrations/006_personal_category_archiving.sql`: permite archivar categorías sin borrar su historial.
 - `db/migrations/007_user_accounts.sql`: cuentas locales, sesiones y asociación de perfiles personales a usuarios.
 - `db/migrations/008_recurring_payments.sql`: pagos recurrentes personales registrados manualmente.
+- `db/migrations/009_dated_account_balances.sql`: saldos iniciales con fecha y ajustes de saldo.
 - `db/seeds/001_demo.sql`: datos **ficticios**, separados de los datos reales.
 
 ## Preparar una base nueva
@@ -38,9 +39,10 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/005_savings_goal_contri
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/006_personal_category_archiving.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/007_user_accounts.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/008_recurring_payments.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/009_dated_account_balances.sql
 ```
 
-Las migraciones existentes no son repetibles: **no las vuelvas a ejecutar sobre una base ya preparada**. Si tu base ya tiene la 007, aplica únicamente la 008 después de verificar la conexión y respaldar los datos. Si le faltan otras migraciones, aplica solo las pendientes en orden. La migración 007 no vincula los perfiles existentes a ninguna cuenta: los nuevos usuarios empiezan con un perfil personal nuevo. No hay un mecanismo automático que registre qué migraciones se aplicaron.
+Las migraciones existentes no son repetibles: **no las vuelvas a ejecutar sobre una base ya preparada**. Verifica la conexión y respalda los datos; aplica solo las migraciones pendientes en orden. La migración 007 no vincula los perfiles existentes a ninguna cuenta: los nuevos usuarios empiezan con un perfil personal nuevo. No hay un mecanismo automático que registre qué migraciones se aplicaron.
 
 ## Datos ficticios para pruebas manuales (opcional)
 
@@ -104,7 +106,9 @@ Por defecto, la aplicación se conecta a la base local `finance_tracker`. Para u
 
 También puedes configurar la conexión con `DATABASE_URL`, o con las variables de PostgreSQL `PGHOST`, `PGPORT`, `PGUSER` y `PGPASSWORD`. No guardes contraseñas en archivos versionados.
 
-Abre [http://127.0.0.1:3000](http://127.0.0.1:3000). Si el puerto 3000 está ocupado, puedes indicar otro con `PORT=3001 npm start` y abrir `http://127.0.0.1:3001`. En «Movimientos» puedes registrar ingresos y egresos y consultar su historial completo, ordenado por fecha, independientemente del mes del dashboard. Las transferencias se registran y muestran por separado: mueven saldo entre cuentas y no cuentan como ingreso ni gasto. Puedes editar y eliminar movimientos personales desde sus listas; la edición de gastos e ingresos solo admite pesos enteros, por lo que los registros existentes con centavos no se pueden editar. Las transferencias admiten centavos. Las eliminaciones son permanentes. En «Cuentas» puedes configurar el saldo inicial; se considera anterior a todos los movimientos guardados. Para detener el servidor, presiona `Ctrl+C`.
+Abre [http://127.0.0.1:3000](http://127.0.0.1:3000). Si el puerto 3000 está ocupado, puedes indicar otro con `PORT=3001 npm start` y abrir `http://127.0.0.1:3001`. En «Movimientos» puedes registrar ingresos y egresos y consultar su historial completo, ordenado por fecha, independientemente del mes del dashboard. Las transferencias se registran y muestran por separado: mueven saldo entre cuentas y no cuentan como ingreso ni gasto. Puedes editar y eliminar movimientos personales desde sus listas; la edición de gastos e ingresos solo admite pesos enteros, por lo que los registros existentes con centavos no se pueden editar. Las transferencias admiten centavos. Las eliminaciones son permanentes. Para detener el servidor, presiona `Ctrl+C`.
+
+En el menú «Cuentas», consulta tus saldos y configura una sola vez el saldo inicial y la fecha desde la que comienza el seguimiento de cada cuenta nueva. Ese saldo es anterior a los movimientos de ese día y no se permiten movimientos o ajustes anteriores a la fecha. Las cuentas existentes conservan su saldo inicial y su historial anterior sin cambios. Para corregir diferencias, registra un ajuste positivo o negativo con fecha y motivo: afecta al saldo desde esa fecha, pero no cuenta como ingreso o gasto. Los ajustes pueden consultarse y eliminarse desde «Cuentas».
 
 En «Movimientos» puedes combinar filtros de fecha, tipo, categoría, descripción y cuenta; las fechas incluyen ambos extremos. La búsqueda de descripción no distingue mayúsculas ni tildes. Los filtros también se aplican a las transferencias: la cuenta puede ser de origen o destino, y al seleccionar una categoría no aparecen porque no tienen categoría. Usa «Limpiar filtros» para volver a ver todo.
 
@@ -124,7 +128,7 @@ Los gráficos de líneas muestran ingresos, gastos y ahorro, ritmo de gasto y ev
 
 Puedes clasificar categorías como fijas o variables; su clasificación actual se aplica también al historial. La proyección de cada meta usa el promedio de aportes de los últimos tres meses calendario completos anteriores al mes actual; no predice una fecha si no hubo aportes.
 
-La evolución de saldos suma las cuentas activas en CLP al cierre de cada mes o hasta hoy, incluyendo transferencias. El saldo inicial se considera anterior a todos los movimientos, incluso para meses anteriores a la creación de una cuenta. No es una medición completa del patrimonio: excluye cuentas inactivas, otras monedas y activos o deudas no registrados. Los saldos actuales individuales aparecen en «Cuentas».
+La evolución de saldos suma las cuentas activas en CLP al cierre de cada mes o hasta hoy, incluyendo transferencias y ajustes. Los saldos iniciales de cuentas nuevas se incluyen desde su fecha de inicio; antes de esa fecha se desconocen y no se incluyen en el total. Los de cuentas existentes siguen considerándose anteriores a todos sus movimientos. No es una medición completa del patrimonio: excluye cuentas inactivas, otras monedas y activos o deudas no registrados. Los saldos actuales individuales aparecen en «Cuentas».
 
 En «Categorías», consulta un mes y escribe el presupuesto junto a cada categoría. El mes seleccionado también actualiza el dashboard. Guarda los presupuestos junto con las categorías mediante «Actualizar categorías»; deja un campo vacío para quitar ese presupuesto del mes. El límite se configura por separado para cada mes, en pesos enteros; también puede ser cero. Los presupuestos existentes con centavos se conservan si no se modifican. El gráfico del dashboard compara el gasto personal de ese mes en CLP con el límite y muestra lo disponible o excedido. No incluye ingresos, transferencias, gastos sin categoría ni gastos en otras monedas. Si otra operación modifica un presupuesto desde que se consultó, descarta los cambios y vuelve a consultar antes de guardarlo.
 

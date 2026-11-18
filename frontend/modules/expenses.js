@@ -2,10 +2,10 @@ import {
   monthInput, movementStatus, expenseForm, formMessage,
   saveButton, todayText,
   formatMoney, state,
-} from "./common.js?v=11";
-import { loadMovements, loadMovementHistory, refreshAccounts } from "./movements.js?v=11";
-import { beginBudgetLoad, budgetLoadFailed, loadBudgets, selectMovementMonth } from "./planning.js?v=11";
-import { loadDashboard } from "./analytics.js?v=11";
+} from "./common.js?v=13";
+import { loadMovements, loadMovementHistory, refreshAccounts } from "./movements.js?v=13";
+import { beginBudgetLoad, budgetLoadFailed, loadBudgets, selectMovementMonth } from "./planning.js?v=13";
+import { loadDashboard } from "./analytics.js?v=13";
 
 const message = document.querySelector("#message");
 const results = document.querySelector("#results");
@@ -104,7 +104,6 @@ export async function loadExpenses(month = state.displayedBudgetMonth || state.b
   const historyRequest = loadMovementHistory();
   beginBudgetLoad(month);
   state.displayedBudgetMonth = null;
-  document.querySelector("#accounts-panel").hidden = false;
   document.querySelector("#income-card").hidden = false;
   results.hidden = true;
   message.textContent = "Cargando gastos...";

@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Mis finanzas</title>
-  <link rel="stylesheet" href="/styles.css?v=11">
-  <script src="/dashboard.js?v=11" type="module"></script>
+  <link rel="stylesheet" href="/styles.css?v=12">
+  <script src="/dashboard.js?v=13" type="module"></script>
 </head>
 <body>
   <header>
@@ -55,6 +55,7 @@
     <nav class="app-nav" aria-label="Secciones principales">
       <button type="button" id="nav-dashboard" aria-controls="dashboard-view" aria-current="page">Dashboard</button>
       <button type="button" id="nav-movements" aria-controls="movements-view">Movimientos</button>
+      <button type="button" id="nav-accounts" aria-controls="accounts-panel">Cuentas</button>
       <button type="button" id="nav-savings" aria-controls="savings-panel">Metas de ahorro</button>
       <button type="button" id="nav-categories" aria-controls="category-panel">Categorías</button>
     </nav>
@@ -126,7 +127,7 @@
         </details>
         <details class="dashboard-section">
           <summary>Evolución de saldos por cuenta</summary>
-          <p>Saldo conjunto de las cuentas activas en CLP; el saldo inicial se considera anterior a todos los movimientos. No incluye otros activos ni deudas.</p>
+          <p>Saldo conjunto de las cuentas activas en CLP, incluidos sus ajustes. Antes de la fecha inicial, el saldo de esa cuenta se desconoce y no se incluye. No incluye otros activos ni deudas.</p>
           <div id="dashboard-balance-chart" class="visualization"></div>
           <details class="visualization-data"><summary>Ver saldos mensuales</summary>
           <ul id="dashboard-balances"></ul>
@@ -146,14 +147,17 @@
         <article class="card"><p>Movimientos</p><strong id="count"></strong><small>Gastos registrados</small></article>
         <article class="card" id="income-card" hidden><p>Ingresos</p><strong id="income-total"></strong><small>En el mes seleccionado</small></article>
       </div>
-      <section class="panel" id="accounts-panel" hidden>
+    </section>
+    </div>
+      <section class="panel" id="accounts-panel" hidden aria-labelledby="accounts-title">
         <p class="eyebrow">SALDOS ACTUALES</p>
-        <h2>Cuentas</h2>
-        <p class="chart-description">Saldo inicial más ingresos, gastos y transferencias registrados hasta hoy.</p>
+        <h1 id="accounts-title">Cuentas</h1>
+        <p class="chart-description">Saldo inicial más movimientos y ajustes registrados hasta hoy.</p>
         <p id="accounts-status" role="status" aria-live="polite"></p>
         <ul id="accounts" aria-label="Saldos actuales por cuenta"></ul>
         <form id="opening-balance-form">
           <h3>Configurar saldo inicial</h3>
+          <p>Configúralo una sola vez para cuentas nuevas, antes de registrar movimientos.</p>
           <div class="form-grid">
             <label>Cuenta
               <select name="accountId" required><option value="">Selecciona una cuenta</option></select>
@@ -161,13 +165,37 @@
             <label>Saldo inicial en CLP
               <input name="amount" type="number" min="-999999999999.99" max="999999999999.99" step="0.01" required>
             </label>
+            <label>Fecha de inicio
+              <input name="date" type="date" required>
+            </label>
           </div>
-          <p id="opening-balance-message" role="status" aria-live="polite"></p>
           <button id="save-opening-balance" type="submit" disabled>Guardar saldo inicial</button>
         </form>
+        <p id="opening-balance-message" role="status" aria-live="polite"></p>
+        <form id="balance-adjustment-form">
+          <h3>Ajustar saldo</h3>
+          <p>Registra la diferencia positiva o negativa, sin modificar ingresos ni gastos anteriores.</p>
+          <div class="form-grid">
+            <label>Cuenta
+              <select name="accountId" required><option value="">Selecciona una cuenta</option></select>
+            </label>
+            <label>Diferencia en CLP
+              <input name="amount" type="number" min="-999999999999.99" max="999999999999.99" step="0.01" required>
+            </label>
+            <label>Fecha
+              <input name="date" type="date" required>
+            </label>
+            <label>Motivo
+              <input name="reason" maxlength="100" required>
+            </label>
+          </div>
+          <p id="balance-adjustment-message" role="status" aria-live="polite"></p>
+          <button id="save-balance-adjustment" type="submit" disabled>Registrar ajuste</button>
+        </form>
+        <h3>Historial de ajustes</h3>
+        <p id="adjustments-status" role="status" aria-live="polite"></p>
+        <ul id="balance-adjustments"></ul>
       </section>
-    </section>
-    </div>
     <div id="movements-view" hidden>
     <h1>Movimientos</h1>
     <p class="chart-description">Registra y consulta tus ingresos y egresos de todos los meses.</p>

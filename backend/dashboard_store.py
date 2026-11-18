@@ -191,7 +191,9 @@ class DashboardStore:
                        AND (member_id IS NULL OR member_id = %(member)s)
                    )
                    SELECT to_char(m.start, 'YYYY-MM') AS month,
-                     coalesce(sum(a.opening_balance
+                     coalesce(sum((CASE WHEN a.opening_date IS NULL
+                                           OR a.opening_date < least(m.start + interval '1 month', current_date + 1)
+                                        THEN a.opening_balance ELSE 0 END)
                        + coalesce((SELECT sum(CASE t.type WHEN 'income' THEN t.amount ELSE -t.amount END)
                            FROM finance.transactions t WHERE t.household_id = a.household_id
                              AND t.account_id = a.account_id AND t.member_id = %(member)s
@@ -200,7 +202,11 @@ class DashboardStore:
                        + coalesce((SELECT sum(CASE WHEN tr.source_account_id = a.account_id THEN -tr.amount ELSE tr.amount END)
                            FROM finance.account_transfer tr WHERE tr.household_id = a.household_id
                              AND tr.member_id = %(member)s AND (tr.source_account_id = a.account_id OR tr.destination_account_id = a.account_id)
-                             AND tr.tx_date < least(m.start + interval '1 month', current_date + 1)), 0)), 0)::text AS balance
+                             AND tr.tx_date < least(m.start + interval '1 month', current_date + 1)), 0)
+                       + coalesce((SELECT sum(adj.amount) FROM finance.account_balance_adjustment adj
+                           WHERE adj.household_id = a.household_id AND adj.account_id = a.account_id
+                             AND adj.member_id = %(member)s
+                             AND adj.adjustment_date < least(m.start + interval '1 month', current_date + 1)), 0)), 0)::text AS balance
                    FROM months m LEFT JOIN accounts a ON true GROUP BY m.start ORDER BY m.start""",
                 params,
             ).fetchall()
