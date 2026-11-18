@@ -110,6 +110,14 @@ El reporte «Evolución de tus gastos» compara los últimos 3, 6 o 12 meses has
 
 El dashboard mensual compara ingresos, gastos, ahorro neto y tasa de ahorro con el mes anterior. El ahorro neto es ingresos menos gastos; no descuenta transferencias ni aportes a metas. Sin ingresos no se calcula la tasa. El gráfico de presupuestos compara el gasto con el límite de cada categoría en una escala común en CLP: verde si está dentro del límite y rojo si lo supera. Pasa el cursor, toca o enfoca una barra para ver sus importes y alertas desde el 80 %; las categorías sin presupuesto aparecen aparte. Incluye tendencias de 6 o 12 meses por categoría, mayores gastos y comercios, y una comparación del gasto acumulado con un ritmo uniforme basado únicamente en categorías presupuestadas; el gasto sin presupuesto se informa aparte.
 
+El ritmo ideal distribuye uniformemente el presupuesto mensual entre los días del mes. Para el día $d$, con presupuesto total $P$ en pesos y $D$ días en el mes:
+
+```math
+\text{Ritmo ideal acumulado}(d) = \frac{\left\lfloor 100 \times P \times d / D \right\rfloor}{100}
+```
+
+$P$ es la suma de los límites configurados para ese mes. El resultado se trunca al centavo; el día 0 comienza en cero. Por ejemplo, con un presupuesto de $900.000 en un mes de 30 días, el ritmo ideal al día 10 es $300.000. El gráfico lo compara con los gastos acumulados de categorías con presupuesto; los demás gastos se indican por separado. Es una referencia uniforme, no una predicción ni una consideración de las fechas reales de los pagos.
+
 Los gráficos de líneas muestran ingresos, gastos y ahorro, ritmo de gasto y evolución de saldos; los gráficos de composición muestran la distribución mensual por categoría y por tipo de gasto. Los gráficos con ejes indican el período o categoría en el eje horizontal y el monto en CLP en el vertical, con una escala que se ajusta a los datos. En los gráficos de ingresos, gastos y ahorro y de ritmo de gasto, señala, toca o enfoca un punto para ver los valores del mes o día. En el gráfico de categorías, señala, toca o selecciona una porción o su leyenda para ver su evolución con el mismo color; interactúa con un punto de la evolución para ver el gasto del mes. Las categorías con gastos solo en meses anteriores también aparecen en la leyenda. El efecto de profundidad es visual y las proporciones corresponden a los importes del mes. Los gráficos de líneas se desplazan horizontalmente cuando no caben.
 
 Puedes clasificar categorías como fijas o variables; su clasificación actual se aplica también al historial. Los pagos recurrentes se registran manualmente y no generan movimientos. Sus equivalentes mensuales de pagos anuales se redondean al centavo y son aproximados. La proyección de cada meta usa el promedio de aportes de los últimos tres meses calendario completos anteriores al mes actual; no predice una fecha si no hubo aportes.
