@@ -102,7 +102,7 @@ li { border-top: 1px solid #edf1ed; padding: 15px 0; }
 .expense-breakdown-row dd { margin: 0; color: #1d3228; font-weight: 600; overflow-wrap: anywhere; }
 .dashboard-section { border-top: 1px solid #e1e9e1; margin-top: 16px; padding-top: 14px; }
 .dashboard-section summary { cursor: pointer; color: #1f6041; font-weight: 700; }
-.dashboard-section > p, .dashboard-chart-item p, .dashboard-recurring p { color: #64766a; font-size: 13px; }
+.dashboard-section > p, .dashboard-chart-item p { color: #64766a; font-size: 13px; }
 .dashboard-chart-item { padding: 10px 0; }
 .dashboard-chart-item p { margin: 5px 0; }
 .dashboard-bar-track { height: 7px; background: #e8f0e9; border-radius: 6px; margin: 5px 0; overflow: hidden; }
@@ -147,10 +147,6 @@ li { border-top: 1px solid #edf1ed; padding: 15px 0; }
 .budget-chart-exceptions { margin-top: 20px; }
 .budget-chart-exceptions h4 { margin: 0 0 5px; font-size: 13px; color: #64766a; }
 .budget-chart-exceptions li { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 5px 16px; padding: 9px 0; font-size: 13px; }
-.dashboard-recurring { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.dashboard-recurring > div { flex: 1; min-width: 180px; }
-#recurring-form { border-top: 1px solid #edf1ed; padding-top: 14px; }
-#recurring-form .form-actions { margin-top: 12px; }
 .dashboard-empty { color: #6d8072; font-size: 13px; }
 .visualization-legend { display: flex; flex-wrap: wrap; gap: 14px; }
 .visualization-key { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; }

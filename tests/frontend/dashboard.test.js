@@ -56,7 +56,6 @@ test("los módulos coordinan la sesión, los movimientos y la planificación", a
     otherBudgets: {},
     goals: [],
     categories: [{ id: 2, name: "Groceries", active: true, fixed: false }],
-    payments: [],
     dashboardBudgets: null,
     dashboardCategories: null,
     dashboardMonthly: null,
@@ -129,15 +128,6 @@ test("los módulos coordinan la sesión, los movimientos y la planificación", a
         if (data.failCategories) return { ok: false, json: async () => ({ error: "Categorías no disponibles." }) };
         result = { categories: data.categories };
       }
-    } else if (url.pathname === "/api/recurrentes") {
-      if (method === "POST") {
-        data.payments.push({ ...body, id: "1" });
-      } else if (method === "PUT") {
-        data.payments = data.payments.map((payment) => payment.id === body.id ? body : payment);
-      } else if (method === "DELETE") {
-        data.payments = data.payments.filter((payment) => payment.id !== body.id);
-      }
-      result = { payments: data.payments };
     } else if (url.pathname === "/api/cuentas/saldo-inicial") {
       account.openingBalance = body.amount;
       result = { message: "Guardado." };
@@ -835,18 +825,10 @@ test("los módulos coordinan la sesión, los movimientos y la planificación", a
   element("#month").value = viewedMonth;
   element("#nav-dashboard").click();
 
-  field("#recurring-form", "name", "Suscripción");
-  field("#recurring-form", "amount", "120.01");
-  field("#recurring-form", "frequency", "yearly");
-  submit("#recurring-form");
-  await waitFor(() => element("#recurring-list").textContent.includes("Suscripción"));
-  assert.match(element("#recurring-totals").textContent, /\$10.*\$120/);
-  element('[aria-label="Editar pago recurrente Suscripción"]').click();
-  field("#recurring-form", "amount", "240");
-  submit("#recurring-form");
-  await waitFor(() => element("#recurring-totals").textContent.includes("$240"));
-  element('[aria-label="Eliminar pago recurrente Suscripción"]').click();
-  await waitFor(() => element("#recurring-list").textContent.includes("No hay pagos"));
+  assert.equal(element("#recurring-form"), null);
+  assert.equal([...window.document.querySelectorAll("summary")]
+    .some((item) => item.textContent === "Suscripciones y pagos recurrentes"), false);
+  assert.ok(!requests.some((request) => request.path === "/api/recurrentes"));
 
   data.failHistory = true;
   submit("#month-form");

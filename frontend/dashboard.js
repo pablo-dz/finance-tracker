@@ -1,10 +1,10 @@
 import {
   monthInput, movementStatus, expenseForm,
   todayText, state,
-} from "./modules/common.js?v=10";
-import { initializeAuthentication } from "./modules/auth.js?v=10";
-import { loadExpenses } from "./modules/expenses.js?v=10";
-import { prepareBudgetMonth } from "./modules/planning.js?v=10";
+} from "./modules/common.js?v=11";
+import { initializeAuthentication } from "./modules/auth.js?v=11";
+import { loadExpenses } from "./modules/expenses.js?v=11";
+import { prepareBudgetMonth } from "./modules/planning.js?v=11";
 
 const form = document.querySelector("#month-form");
 const views = [

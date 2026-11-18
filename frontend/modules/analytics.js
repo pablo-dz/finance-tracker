@@ -1,5 +1,5 @@
-import { displayName, formatMoney, state } from "./common.js?v=10";
-import { budgetChart, lineChart, pieChart3D } from "./visualizations.js?v=10";
+import { displayName, formatMoney, state } from "./common.js?v=11";
+import { budgetChart, lineChart, pieChart3D } from "./visualizations.js?v=11";
 
 const status = document.querySelector("#dashboard-status");
 const content = document.querySelector("#dashboard-content");
@@ -15,12 +15,6 @@ const categoryEvolutionValues = document.querySelector("#category-evolution-valu
 const paceNote = document.querySelector("#dashboard-pace-note");
 const paceList = document.querySelector("#dashboard-pace");
 const paceChart = document.querySelector("#dashboard-pace-chart");
-const recurringList = document.querySelector("#recurring-list");
-const recurringStatus = document.querySelector("#recurring-status");
-const recurringTotals = document.querySelector("#recurring-totals");
-const recurringForm = document.querySelector("#recurring-form");
-const saveRecurring = document.querySelector("#save-recurring");
-const cancelRecurring = document.querySelector("#cancel-recurring");
 const goalList = document.querySelector("#dashboard-goals");
 const balanceList = document.querySelector("#dashboard-balances");
 const balanceChart = document.querySelector("#dashboard-balance-chart");
@@ -29,8 +23,6 @@ const merchantsList = document.querySelector("#dashboard-merchants");
 
 let requestId = 0;
 let dashboardData = null;
-let editingPayment = null;
-let savingPayment = false;
 let selectedCategoryKey = null;
 
 function cents(value) {
@@ -327,63 +319,6 @@ function renderTop(data) {
   }
 }
 
-function resetRecurringForm() {
-  editingPayment = null;
-  recurringForm.reset();
-  saveRecurring.textContent = "Agregar pago";
-  cancelRecurring.hidden = true;
-}
-
-function renderRecurring(payments) {
-  recurringList.replaceChildren();
-  let annual = 0n;
-  if (!payments.length) empty(recurringList, "No hay pagos recurrentes registrados.");
-  for (const payment of payments) {
-    const amount = cents(payment.amount);
-    const yearly = payment.frequency === "monthly" ? amount * 12n : amount;
-    annual += yearly;
-    const item = node("li", undefined, "dashboard-recurring");
-    const detail = node("div");
-    detail.append(node("strong", payment.name),
-      node("p", `Mensual: ${money((yearly + 6n) / 12n)} · Anual: ${money(yearly)}${payment.frequency === "yearly" ? " · Promedio mensual" : ""}`));
-    const edit = node("button", "Editar", "edit-button");
-    edit.type = "button";
-    edit.setAttribute("aria-label", `Editar pago recurrente ${payment.name}`);
-    edit.addEventListener("click", () => {
-      editingPayment = payment.id;
-      recurringForm.elements.name.value = payment.name;
-      recurringForm.elements.amount.value = payment.amount;
-      recurringForm.elements.frequency.value = payment.frequency;
-      saveRecurring.textContent = "Guardar cambios";
-      cancelRecurring.hidden = false;
-      recurringForm.elements.name.focus();
-    });
-    const remove = node("button", "Eliminar", "delete-button");
-    remove.type = "button";
-    remove.setAttribute("aria-label", `Eliminar pago recurrente ${payment.name}`);
-    remove.addEventListener("click", async () => {
-      if (!confirm(`¿Eliminar el pago recurrente "${payment.name}"?`)) return;
-      remove.disabled = true;
-      try {
-        await request("/api/recurrentes", {
-          method: "DELETE", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id: payment.id }),
-        });
-        if (editingPayment === payment.id) resetRecurringForm();
-        await refreshDashboard();
-        recurringStatus.textContent = "Pago recurrente eliminado.";
-      } catch (error) {
-        recurringStatus.textContent = error instanceof Error ? error.message : "No se pudo eliminar el pago.";
-      } finally {
-        remove.disabled = false;
-      }
-    });
-    item.append(detail, edit, remove);
-    recurringList.append(item);
-  }
-  recurringTotals.textContent = `Total mensual aproximado: ${money((annual + 6n) / 12n)} · Total anual: ${money(annual)}.`;
-}
-
 async function request(path, options) {
   const response = await fetch(path, options);
   const data = await response.json();
@@ -396,10 +331,7 @@ export async function loadDashboard(month) {
   status.textContent = "Cargando dashboard...";
   content.hidden = true;
   try {
-    const [data, payments] = await Promise.all([
-      request(`/api/dashboard?mes=${encodeURIComponent(month)}`),
-      request("/api/recurrentes"),
-    ]);
+    const data = await request(`/api/dashboard?mes=${encodeURIComponent(month)}`);
     if (current !== requestId) return;
     dashboardData = data;
     renderSummary(data);
@@ -410,7 +342,6 @@ export async function loadDashboard(month) {
     renderGoals(data.goals);
     renderBalances(data);
     renderTop(data);
-    renderRecurring(payments.payments);
     content.hidden = false;
     status.textContent = "";
   } catch (error) {
@@ -431,31 +362,3 @@ period.addEventListener("change", () => {
     renderBalances(dashboardData);
   }
 });
-
-recurringForm.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  if (savingPayment) return;
-  savingPayment = true;
-  saveRecurring.disabled = true;
-  cancelRecurring.disabled = true;
-  const values = new FormData(recurringForm);
-  const body = { name: values.get("name"), amount: values.get("amount"), frequency: values.get("frequency") };
-  if (editingPayment !== null) body.id = editingPayment;
-  try {
-    await request("/api/recurrentes", {
-      method: editingPayment === null ? "POST" : "PUT",
-      headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
-    });
-    resetRecurringForm();
-    await refreshDashboard();
-    recurringStatus.textContent = "Pago recurrente guardado.";
-  } catch (error) {
-    recurringStatus.textContent = error instanceof Error ? error.message : "No se pudo guardar el pago.";
-  } finally {
-    savingPayment = false;
-    saveRecurring.disabled = false;
-    cancelRecurring.disabled = false;
-  }
-});
-
-cancelRecurring.addEventListener("click", resetRecurringForm);
