@@ -37,6 +37,8 @@ test("los módulos coordinan la sesión, los movimientos y la planificación", a
     categories: [{ id: 2, name: "Groceries", active: true, fixed: false }],
     payments: [],
     dashboardBudgets: null,
+    dashboardCategories: null,
+    dashboardMonthly: null,
     failDashboard: false,
     failExpenses: false,
     failGoals: false,
@@ -78,9 +80,9 @@ test("los módulos coordinan la sesión, los movimientos y la planificación", a
       result = {
         month, today: `${month}-15`, current,
         previous: { income: "0", expenses: "0", saving: "0", savingRate: null },
-        monthly: [current],
-        categories: expense ? [{ month, id: 2, name: "Groceries",
-                                 fixed: data.categories[0].fixed, amount: String(expense) }] : [],
+        monthly: data.dashboardMonthly ?? [current],
+        categories: data.dashboardCategories ?? (expense ? [{ month, id: 2, name: "Groceries",
+                                 fixed: data.categories[0].fixed, amount: String(expense) }] : []),
         budgets: data.dashboardBudgets ?? [{ categoryId: 2, category: "Groceries", isActive: true,
                     budget: budget === null ? null : String(budget), spent: String(expense),
                     difference: budget === null ? null : String(Math.abs(budget - expense)),
@@ -234,6 +236,106 @@ test("los módulos coordinan la sesión, los movimientos y la planificación", a
   assert.equal(element("#nav-dashboard").getAttribute("aria-current"), "page");
   assert.match(element("#dashboard-summary").textContent, /Sin ingresos/);
   assert.equal(element("#dashboard-trend-chart svg").getAttribute("aria-hidden"), "true");
+  for (const selector of ["#dashboard-trend-chart", "#dashboard-balance-chart"]) {
+    assert.equal(element(`${selector} .visualization-axis-x`).textContent, "Mes");
+    assert.equal(element(`${selector} .visualization-axis-y`).textContent, "Monto (CLP)");
+  }
+
+  const initialMonth = element("#month").value;
+  element("#month").value = "2024-12";
+  data.dashboardMonthly = Array.from({ length: 12 }, (_, index) => ({
+    month: `2024-${String(index + 1).padStart(2, "0")}`, income: index === 0 ? "100" : "0",
+    expenses: index === 0 ? "60" : "0", saving: index === 0 ? "40" : "0",
+  }));
+  data.dashboardCategories = [
+    { id: 2, name: "Groceries", month: "2024-01", amount: "20", fixed: false },
+    { id: 2, name: "Groceries", month: "2024-12", amount: "75", fixed: false },
+    { id: null, name: "Sin categoría", month: "2024-11", amount: "40", fixed: null },
+    { id: null, name: "Sin categoría", month: "2024-12", amount: "25", fixed: null },
+    { id: 9, name: "Histórica", month: "2024-02", amount: "15", fixed: false },
+  ];
+  submit("#month-form");
+  await waitFor(() => element("#category-evolution-title").textContent === "Evolución: Supermercado"
+    && !element("#dashboard-content").hidden);
+  assert.ok(element("#dashboard-trend").classList.contains("visually-hidden"));
+  assert.equal([...window.document.querySelectorAll("summary")].some((item) => item.textContent === "Ver datos mensuales"), false);
+  const trendPoint = element("#dashboard-trend-chart .visualization-point-target");
+  trendPoint.dispatchEvent(new window.MouseEvent("mouseenter"));
+  assert.match(element("#dashboard-trend-chart .line-tooltip").textContent,
+    /2024-01.*Ingresos: \$100.*Gastos: \$60.*Ahorro neto: \$40/);
+  assert.match(element("#dashboard-trend").textContent, /2024-01: Ingresos: \$100.*Gastos: \$60.*Ahorro neto: \$40/);
+  assert.equal(element("#category-evolution-values").children.length, 12);
+  assert.equal(element("#category-evolution-chart .visualization-axis-x").textContent, "Mes");
+  assert.equal(element("#category-evolution-chart .visualization-axis-y").textContent, "Monto (CLP)");
+  assert.deepEqual([...element("#category-evolution-chart").querySelectorAll(".visualization-y-tick")]
+    .map((tick) => tick.textContent), ["$80", "$60", "$40", "$20", "$0"]);
+  assert.ok(element("#category-evolution-values").classList.contains("visually-hidden"));
+  assert.equal(element("#dashboard-category-trend"), null);
+  assert.match(element("#category-evolution-values").textContent, /2024-01: \$20.*2024-02: \$0/);
+  assert.equal(element("#category-evolution-chart").querySelectorAll("circle").length, 12);
+  const evolutionPoints = element("#category-evolution-chart").querySelectorAll(".visualization-point-target");
+  assert.equal(evolutionPoints.length, 12);
+  evolutionPoints[0].dispatchEvent(new window.MouseEvent("mouseenter"));
+  assert.match(element("#category-evolution-chart .line-tooltip").textContent, /2024-01.*Supermercado: \$20/);
+  evolutionPoints[1].focus();
+  assert.match(element("#category-evolution-chart .line-tooltip").textContent, /2024-02.*Supermercado: \$0/);
+  assert.deepEqual([...element("#category-evolution-chart").querySelectorAll("svg text")].map((tick) => tick.textContent),
+    ["2024-01", "2024-03", "2024-05", "2024-07", "2024-09", "2024-12"]);
+  const choices = [...window.document.querySelectorAll(".category-pie-choice")];
+  const assertEvolutionColor = (choice) => {
+    const color = choice.querySelector(".visualization-marker").style.backgroundColor;
+    const chart = element("#category-evolution-chart");
+    const normalizeColor = (value) => {
+      const marker = window.document.createElement("span");
+      marker.style.backgroundColor = value;
+      return marker.style.backgroundColor;
+    };
+    assert.equal(chart.querySelector(".visualization-marker").style.backgroundColor, color);
+    assert.equal(normalizeColor(chart.querySelector("polyline").getAttribute("stroke")), color);
+    assert.equal(normalizeColor(chart.querySelector("circle").getAttribute("fill")), color);
+  };
+  assertEvolutionColor(choices[0]);
+  choices[1].dispatchEvent(new window.MouseEvent("mouseenter"));
+  assert.equal(element("#category-evolution-title").textContent, "Evolución: Sin categoría");
+  assert.deepEqual([...element("#category-evolution-chart").querySelectorAll(".visualization-y-tick")]
+    .map((tick) => tick.textContent), ["$40", "$30", "$20", "$10", "$0"]);
+  assert.notEqual(choices[0].querySelector(".visualization-marker").style.backgroundColor,
+    choices[1].querySelector(".visualization-marker").style.backgroundColor);
+  assertEvolutionColor(choices[1]);
+  assert.match(element("#category-evolution-values").textContent, /2024-11: \$40.*2024-12: \$25/);
+  element("#category-evolution-chart").querySelectorAll(".visualization-point-target")[11].click();
+  assert.match(element("#category-evolution-chart .line-tooltip").textContent, /2024-12.*Sin categoría: \$25/);
+  element("#dashboard-period").value = "6";
+  element("#dashboard-period").dispatchEvent(new window.Event("change", { bubbles: true }));
+  assert.equal(element("#category-evolution-title").textContent, "Evolución: Sin categoría");
+  assert.equal(element("#category-evolution-values").children.length, 6);
+  assertEvolutionColor(element('.category-pie-choice[aria-pressed="true"]'));
+  element("#dashboard-period").value = "12";
+  element("#dashboard-period").dispatchEvent(new window.Event("change", { bubbles: true }));
+  const historicalChoice = [...window.document.querySelectorAll(".category-pie-choice")]
+    .find((button) => button.textContent.includes("Histórica"));
+  assert.match(historicalChoice.textContent, /Sin gasto este mes/);
+  historicalChoice.click();
+  assert.equal(element("#category-evolution-title").textContent, "Evolución: Histórica");
+  assertEvolutionColor(historicalChoice);
+  assert.match(element("#category-evolution-values").textContent, /2024-02: \$15/);
+  element("#category-evolution-chart").querySelectorAll(".visualization-point-target")[1].click();
+  assert.match(element("#category-evolution-chart .line-tooltip").textContent, /2024-02.*Histórica: \$15/);
+  data.dashboardCategories = [{ id: 9, name: "Histórica", month: "2024-11", amount: "15", fixed: false }];
+  submit("#month-form");
+  await waitFor(() => element("#dashboard-category-chart").textContent.includes("No hay gastos para el mes seleccionado")
+    && !element("#dashboard-content").hidden);
+  assert.match(element("#dashboard-category-chart").textContent, /Histórica.*Sin gasto este mes/);
+  assert.equal(element("#category-evolution-title").textContent, "Evolución: Histórica");
+  assertEvolutionColor(element('.category-pie-choice[aria-pressed="true"]'));
+  assert.match(element("#category-evolution-values").textContent, /2024-11: \$15/);
+  data.dashboardMonthly = null;
+  data.dashboardCategories = null;
+  element("#dashboard-period").value = "12";
+  element("#month").value = initialMonth;
+  submit("#month-form");
+  await waitFor(() => !element("#dashboard-content").hidden
+    && element("#dashboard-category-chart").textContent.includes("No hay gastos"));
 
   data.dashboardBudgets = [
     { category: "Normal", budget: "100.00", spent: "79.99", difference: "20.01", exceeded: false },
@@ -258,13 +360,14 @@ test("los módulos coordinan la sesión, los movimientos y la planificación", a
     ["budget-column-exceeded", "budget-column-exceeded", "budget-column-exceeded",
      "budget-column-within", "budget-column-within", "budget-column-within",
      "budget-column-within", "budget-column-within", "budget-column-within"]);
-  assert.match(element("#dashboard-budgets").textContent, /150 %.*Presupuesto excedido/);
-  assert.match(element("#dashboard-budgets").textContent, />100 %.*Presupuesto excedido/);
-  assert.match(element("#dashboard-budgets").textContent, /79,99 %.*Dentro del presupuesto/);
-  assert.match(element("#dashboard-budgets").textContent, /<0,01 %/);
-  assert.match(element("#dashboard-budgets").textContent, /Cero con gasto.*Excedido: \$10/);
+  const descriptions = [...chart.querySelectorAll(".budget-bar-target")].map((target) => target.getAttribute("aria-label"));
+  assert.match(descriptions[1], /150 %.*Presupuesto excedido/);
+  assert.match(descriptions[2], />100 %.*Presupuesto excedido/);
+  assert.match(descriptions[5], /79,99 %.*Dentro del presupuesto/);
+  assert.match(descriptions[7], /<0,01 %/);
+  assert.match(descriptions[0], /Cero con gasto.*Excedido: \$10/);
   assert.match(element("#dashboard-budget-chart").textContent, /Sin presupuesto.*Sin límite.*Gastado: \$20/);
-  assert.equal(element("#dashboard-budgets").closest("details").open, false);
+  assert.equal(element("#dashboard-budgets"), null);
   data.dashboardBudgets = [];
   submit("#month-form");
   await waitFor(() => element("#dashboard-budget-chart").textContent.includes("No hay categorías")
@@ -331,26 +434,28 @@ test("los módulos coordinan la sesión, los movimientos y la planificación", a
   field("#budget-form", "amount", "1700");
   submit("#budget-form");
   await waitFor(() => element("#budgets").textContent.includes("Límite: $1.700"));
-  await waitFor(() => element("#dashboard-budgets").textContent.includes("Límite: $1.700"));
+  await waitFor(() => element("#dashboard-budget-chart .budget-bar-target")?.getAttribute("aria-label").includes("Límite: $1.700"));
   assert.equal(element("#dashboard-pace-chart svg").querySelectorAll("polyline").length, 2);
+  assert.equal(element("#dashboard-pace-chart .visualization-axis-x").textContent, "Día del mes");
+  assert.equal(element("#dashboard-pace-chart .visualization-axis-y").textContent, "Monto (CLP)");
   assert.match(element("#budgets").textContent, /Disponible: \$500/);
   for (const [spent, expected] of [["1360", "Alerta: 80 % o más"],
                                    ["1700", "Límite alcanzado"],
                                    ["1701", "Presupuesto excedido"]]) {
     data.expense.amount = spent;
     submit("#month-form");
-    await waitFor(() => element("#dashboard-budgets").textContent.includes(expected)
+    await waitFor(() => element("#dashboard-budget-chart .budget-bar-target")?.getAttribute("aria-label").includes(expected)
       && !element("#dashboard-content").hidden);
   }
   data.budget.amount = "0";
   submit("#month-form");
-  await waitFor(() => element("#dashboard-budgets").textContent.includes("Límite: $0")
-    && element("#dashboard-budgets").textContent.includes("Presupuesto excedido")
+  await waitFor(() => element("#dashboard-budget-chart .budget-bar-target")?.getAttribute("aria-label").includes("Límite: $0")
+    && element("#dashboard-budget-chart .budget-bar-target")?.getAttribute("aria-label").includes("Presupuesto excedido")
     && !element("#dashboard-content").hidden);
   data.budget.amount = "1700";
   data.expense.amount = "1200";
   submit("#month-form");
-  await waitFor(() => element("#dashboard-budgets").textContent.includes("Disponible: $500")
+  await waitFor(() => element("#dashboard-budget-chart .budget-bar-target")?.getAttribute("aria-label").includes("Disponible: $500")
     && !element("#dashboard-content").hidden);
   element('[aria-label^="Cambiar límite de Supermercado"]').click();
   field("#budget-form", "amount", "2000");

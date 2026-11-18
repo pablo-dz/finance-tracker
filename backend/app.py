@@ -79,7 +79,7 @@ WEB_DIR = Path(__file__).resolve().parent.parent / "frontend"
 
 @app.get("/", include_in_schema=False)
 def dashboard():
-    return FileResponse(WEB_DIR / "index.html", media_type="text/html")
+    return FileResponse(WEB_DIR / "index.html", media_type="text/html", headers={"Cache-Control": "no-cache"})
 
 
 @app.get("/{filename}", include_in_schema=False)
@@ -87,7 +87,7 @@ def dashboard_asset(filename: str):
     assets = {"dashboard.js": "text/javascript", "chart.js": "text/javascript", "styles.css": "text/css"}
     if filename not in assets:
         return json_response({"error": "No encontrado."}, 404)
-    return FileResponse(WEB_DIR / filename, media_type=assets[filename])
+    return FileResponse(WEB_DIR / filename, media_type=assets[filename], headers={"Cache-Control": "no-cache"})
 
 
 @app.get("/modules/{filename}", include_in_schema=False)
@@ -96,4 +96,5 @@ def dashboard_module(filename: str):
                "savings.js", "analytics.js", "visualizations.js"}
     if filename not in modules:
         return json_response({"error": "No encontrado."}, 404)
-    return FileResponse(WEB_DIR / "modules" / filename, media_type="text/javascript")
+    return FileResponse(WEB_DIR / "modules" / filename, media_type="text/javascript",
+                        headers={"Cache-Control": "no-cache"})

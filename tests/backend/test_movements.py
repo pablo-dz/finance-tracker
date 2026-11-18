@@ -134,6 +134,8 @@ class DashboardTest(unittest.TestCase):
                 response = client.get(path)
                 self.assertEqual(response.status_code, 200)
                 self.assertTrue(response.headers["content-type"].startswith(content_type))
+                self.assertEqual(response.headers["cache-control"], "no-cache")
+            self.assertEqual(client.get("/styles.css?v=4").status_code, 200)
             self.assertEqual(client.get("/server.js").status_code, 404)
             self.assertEqual(client.get("/modules/unknown.js").status_code, 404)
 

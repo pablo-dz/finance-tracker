@@ -1,16 +1,17 @@
 import { displayName, formatMoney, state } from "./common.js";
-import { budgetChart, lineChart, donutChart } from "./visualizations.js";
+import { budgetChart, lineChart, donutChart, pieChart3D } from "./visualizations.js";
 
 const status = document.querySelector("#dashboard-status");
 const content = document.querySelector("#dashboard-content");
 const period = document.querySelector("#dashboard-period");
 const summary = document.querySelector("#dashboard-summary");
-const budgetList = document.querySelector("#dashboard-budgets");
 const budgetChartContainer = document.querySelector("#dashboard-budget-chart");
 const trendList = document.querySelector("#dashboard-trend");
 const trendChart = document.querySelector("#dashboard-trend-chart");
-const categoryTrend = document.querySelector("#dashboard-category-trend");
 const categoryChart = document.querySelector("#dashboard-category-chart");
+const categoryEvolutionTitle = document.querySelector("#category-evolution-title");
+const categoryEvolutionChart = document.querySelector("#category-evolution-chart");
+const categoryEvolutionValues = document.querySelector("#category-evolution-values");
 const paceNote = document.querySelector("#dashboard-pace-note");
 const paceList = document.querySelector("#dashboard-pace");
 const paceChart = document.querySelector("#dashboard-pace-chart");
@@ -32,6 +33,7 @@ let requestId = 0;
 let dashboardData = null;
 let editingPayment = null;
 let savingPayment = false;
+let selectedCategoryKey = null;
 
 function cents(value) {
   const negative = value.startsWith("-");
@@ -92,11 +94,10 @@ function renderSummary(data) {
 }
 
 function renderBudgets(rows) {
-  budgetList.replaceChildren();
-  budgetChartContainer.replaceChildren();
+  budgetChart(budgetChartContainer, [], money);
   if (!rows.length) {
     budgetChartContainer.append(node("p", "No hay categorías para este mes.", "dashboard-empty"));
-    return empty(budgetList, "No hay categorías para este mes.");
+    return;
   }
   const withLimit = rows.filter((row) => row.budget !== null);
   const withoutLimit = rows.filter((row) => row.budget === null);
@@ -110,10 +111,22 @@ function renderBudgets(rows) {
     return difference > 0n ? -1 : difference < 0n ? 1 : 0;
   });
   if (withLimit.length) {
-    budgetChart(budgetChartContainer, withLimit.map((row) => ({
-      name: displayName(row.category) + (row.isActive === false ? " · Archivada" : ""),
-      limit: cents(row.budget), spent: cents(row.spent),
-    })), money);
+    budgetChart(budgetChartContainer, withLimit.map((row) => {
+      const limit = cents(row.budget);
+      const spent = cents(row.spent);
+      const difference = `${row.exceeded ? "Excedido" : "Disponible"}: ${formatMoney(row.difference)}`;
+      const percent = limit > 0n ? `${budgetPercentage(spent, limit)} · ` : "";
+      return {
+        name: displayName(row.category) + (row.isActive === false ? " · Archivada" : ""),
+        limit, spent,
+        detail: [
+          `Gastado: ${formatMoney(row.spent)}`,
+          `Límite: ${formatMoney(row.budget)}`,
+          difference,
+          `${percent}${budgetLabel(budgetLevel(spent, limit))}`,
+        ],
+      };
+    }), money);
   } else {
     budgetChartContainer.append(node("p", "No hay categorías con presupuesto.", "dashboard-empty"));
   }
@@ -128,22 +141,6 @@ function renderBudgets(rows) {
       list.append(item);
     }
     budgetChartContainer.append(section);
-  }
-  for (const row of rows) {
-    const item = node("li", undefined, "dashboard-chart-item");
-    const name = displayName(row.category) + (row.isActive === false ? " · Archivada" : "");
-    item.append(node("strong", name));
-    if (row.budget === null) {
-      item.append(node("p", `Gastado: ${formatMoney(row.spent)} · Sin presupuesto`));
-    } else {
-      const limit = cents(row.budget);
-      const spent = cents(row.spent);
-      const level = budgetLevel(spent, limit);
-      const difference = `${row.exceeded ? "Excedido" : "Disponible"}: ${formatMoney(row.difference)}`;
-      const percent = limit > 0n ? ` · ${budgetPercentage(spent, limit)}` : "";
-      item.append(node("p", `Gastado: ${formatMoney(row.spent)} · Límite: ${formatMoney(row.budget)} · ${difference}${percent} · ${budgetLabel(level)}`, `budget-level-${level}`));
-    }
-    budgetList.append(item);
   }
 }
 
@@ -172,24 +169,15 @@ function renderTrend(data) {
     { name: "Ingresos", values: rows.map((row) => cents(row.income)) },
     { name: "Gastos", values: rows.map((row) => cents(row.expenses)) },
     { name: "Ahorro neto", values: rows.map((row) => cents(row.saving)) },
-  ], money);
-  const max = rows.reduce((value, row) => [cents(row.income), cents(row.expenses)]
-    .reduce((current, amount) => amount > current ? amount : current, value), 0n);
+  ], money, { pointDetails: true });
   trendList.replaceChildren();
   for (const row of rows) {
-    const item = node("li", undefined, "dashboard-chart-item");
-    item.append(node("strong", row.month));
-    item.append(node("p", `Ingresos: ${formatMoney(row.income)} · Gastos: ${formatMoney(row.expenses)} · Ahorro: ${formatMoney(row.saving)}`));
-    item.append(bar(cents(row.income), max, "income"), bar(cents(row.expenses), max, "expense"));
-    trendList.append(item);
+    trendList.append(node("li", `${row.month}: Ingresos: ${formatMoney(row.income)} · Gastos: ${formatMoney(row.expenses)} · Ahorro neto: ${formatMoney(row.saving)}`));
   }
 }
 
 function renderCategories(data) {
   const months = data.monthly.slice(-Number(period.value)).map((row) => row.month);
-  donutChart(categoryChart, data.categories.filter((row) => row.month === data.month)
-    .map((row) => ({ name: displayName(row.name), value: cents(row.amount) })), money);
-  if (!categoryChart.hasChildNodes()) categoryChart.append(node("p", "No hay gastos para el mes seleccionado.", "dashboard-empty"));
   const groups = new Map();
   for (const row of data.categories) {
     if (!months.includes(row.month)) continue;
@@ -197,22 +185,33 @@ function renderCategories(data) {
     if (!groups.has(key)) groups.set(key, { name: row.name, months: new Map() });
     groups.get(key).months.set(row.month, cents(row.amount));
   }
-  categoryTrend.replaceChildren();
-  if (!groups.size) return empty(categoryTrend, "No hay gastos para el período.");
-  const maximum = [...groups.values()].flatMap((group) => [...group.months.values()])
-    .reduce((max, value) => value > max ? value : max, 0n);
-  for (const group of groups.values()) {
-    const item = node("li", undefined, "dashboard-chart-item");
-    item.append(node("strong", displayName(group.name)));
-    const series = node("div", undefined, "dashboard-category-series");
-    for (const month of months) {
-      const value = group.months.get(month) ?? 0n;
-      const cell = node("div");
-      cell.append(node("small", month), bar(value, maximum), node("span", money(value)));
-      series.append(cell);
+  const current = data.categories.filter((row) => row.month === data.month)
+    .map((row) => ({
+      key: row.id === null ? "uncategorized" : String(row.id),
+      name: displayName(row.name), value: cents(row.amount),
+    }));
+  const currentKeys = new Set(current.map((entry) => entry.key));
+  const historical = [...groups.entries()]
+    .filter(([key]) => !currentKeys.has(key))
+    .map(([key, group]) => ({ key, name: displayName(group.name), value: 0n }));
+  lineChart(categoryEvolutionChart, [], [], money);
+  categoryEvolutionValues.replaceChildren();
+  categoryEvolutionTitle.textContent = "Evolución por categoría";
+  pieChart3D(categoryChart, [...current, ...historical], money, (entry, color) => {
+    selectedCategoryKey = entry.key;
+    const group = groups.get(entry.key);
+    const values = months.map((month) => group?.months.get(month) ?? 0n);
+    categoryEvolutionTitle.textContent = `Evolución: ${entry.name}`;
+    lineChart(categoryEvolutionChart, months, [{ name: entry.name, values, color }], money,
+      { labelStep: Math.max(1, Math.ceil(months.length / 6)), pointDetails: true });
+    categoryEvolutionValues.replaceChildren(...months.map((month, index) =>
+      node("li", `${month}: ${money(values[index])}`)));
+  }, selectedCategoryKey);
+  if (!current.some((entry) => entry.value > 0n)) {
+    categoryChart.append(node("p", "No hay gastos para el mes seleccionado.", "dashboard-empty"));
+    if (!historical.length) {
+      categoryEvolutionChart.append(node("p", "No hay categorías en el período para mostrar.", "dashboard-empty"));
     }
-    item.append(series);
-    categoryTrend.append(item);
   }
 }
 
@@ -259,7 +258,7 @@ function renderPace(data) {
     lineChart(paceChart, labels, [
       { name: "Gasto acumulado", values: actual },
       { name: "Ritmo ideal", values: idealValues },
-    ], money);
+    ], money, { xLabel: "Día del mes" });
   }
 }
 

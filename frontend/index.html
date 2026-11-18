@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Mis finanzas</title>
-  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/styles.css?v=4">
   <script src="/dashboard.js" type="module"></script>
 </head>
 <body>
@@ -91,25 +91,26 @@
         </select>
         <details class="dashboard-section" open>
           <summary>Presupuesto vs. gasto real</summary>
-          <p>El gasto se superpone al límite de cada categoría. El detalle conserva las alertas desde el 80 %.</p>
+          <p>El gasto se superpone al límite de cada categoría. Pasa el cursor, toca o enfoca una barra para ver el detalle.</p>
           <div id="dashboard-budget-chart" class="budget-chart"></div>
-          <details class="visualization-data"><summary>Ver detalle de presupuestos</summary>
-          <ul id="dashboard-budgets"></ul>
-          </details>
         </details>
         <details class="dashboard-section" open>
           <summary>Ingresos, gastos y ahorro en el tiempo</summary>
-          <p>El ahorro neto es ingresos menos gastos; las transferencias y los aportes a metas no se restan.</p>
+          <p>El ahorro neto es ingresos menos gastos; las transferencias y los aportes a metas no se restan. Señala, toca o enfoca un punto para ver los valores del mes.</p>
           <div id="dashboard-trend-chart" class="visualization"></div>
-          <details class="visualization-data"><summary>Ver datos mensuales</summary>
-          <ul id="dashboard-trend"></ul>
-          </details>
+          <ul id="dashboard-trend" class="visually-hidden" aria-label="Datos mensuales de ingresos, gastos y ahorro"></ul>
         </details>
         <details class="dashboard-section">
           <summary>Gastos por categoría y evolución</summary>
-          <p>Distribución del mes seleccionado y evolución de cada categoría en el período.</p>
-          <div id="dashboard-category-chart" class="visualization-composition"></div>
-          <ul id="dashboard-category-trend"></ul>
+          <p>Distribución del mes seleccionado. Señala, toca o selecciona una categoría para ver su evolución; interactúa con un punto para ver el gasto del mes.</p>
+          <div class="category-explorer">
+            <div id="dashboard-category-chart" class="visualization"></div>
+            <div class="category-evolution">
+              <h3 id="category-evolution-title" aria-live="polite">Evolución por categoría</h3>
+              <div id="category-evolution-chart" class="visualization"></div>
+              <ul id="category-evolution-values" class="visually-hidden" aria-label="Valores mensuales de la categoría seleccionada"></ul>
+            </div>
+          </div>
         </details>
         <details class="dashboard-section">
           <summary>Ritmo de gasto dentro del mes</summary>
