@@ -52,6 +52,12 @@
       </div>
     </section>
     <div id="app-content" hidden>
+    <nav class="app-nav" aria-label="Secciones principales">
+      <button type="button" id="nav-dashboard" aria-controls="dashboard-view" aria-current="page">Dashboard</button>
+      <button type="button" id="nav-savings" aria-controls="savings-panel">Metas de ahorro</button>
+      <button type="button" id="nav-categories" aria-controls="category-panel">Categorías</button>
+    </nav>
+    <div id="dashboard-view">
     <div class="intro">
       <div>
         <p class="eyebrow">TU RESUMEN MENSUAL</p>
@@ -71,6 +77,94 @@
     <p id="message" role="status" aria-live="polite"></p>
     <p id="movement-status" role="status" aria-live="polite"></p>
     <section id="results" hidden aria-label="Resumen de gastos">
+      <section id="financial-dashboard" class="panel" aria-labelledby="dashboard-title">
+        <p class="eyebrow">TU PANORAMA FINANCIERO</p>
+        <h2 id="dashboard-title">Dashboard mensual</h2>
+        <p class="chart-description">Una vista de tus movimientos personales en CLP. Selecciona el mes arriba para actualizarla.</p>
+        <p id="dashboard-status" role="status" aria-live="polite"></p>
+        <div id="dashboard-content" hidden>
+        <div id="dashboard-summary" class="dashboard-summary"></div>
+        <label for="dashboard-period">Historial de gráficos</label>
+        <select id="dashboard-period">
+          <option value="6">Últimos 6 meses</option>
+          <option value="12" selected>Últimos 12 meses</option>
+        </select>
+        <details class="dashboard-section" open>
+          <summary>Presupuesto vs. gasto real</summary>
+          <p>Alertas al alcanzar el 80 % y el 100 % del límite. Las categorías sin presupuesto se indican aparte.</p>
+          <ul id="dashboard-budgets"></ul>
+        </details>
+        <details class="dashboard-section" open>
+          <summary>Ingresos, gastos y ahorro en el tiempo</summary>
+          <p>El ahorro neto es ingresos menos gastos; las transferencias y los aportes a metas no se restan.</p>
+          <div id="dashboard-trend-chart" class="visualization"></div>
+          <details class="visualization-data"><summary>Ver datos mensuales</summary>
+          <ul id="dashboard-trend"></ul>
+          </details>
+        </details>
+        <details class="dashboard-section">
+          <summary>Gastos por categoría y evolución</summary>
+          <p>Distribución del mes seleccionado y evolución de cada categoría en el período.</p>
+          <div id="dashboard-category-chart" class="visualization-composition"></div>
+          <ul id="dashboard-category-trend"></ul>
+        </details>
+        <details class="dashboard-section">
+          <summary>Ritmo de gasto dentro del mes</summary>
+          <p>Compara solo los gastos con presupuesto contra un ritmo uniforme. Los gastos sin presupuesto se informan aparte.</p>
+          <p id="dashboard-pace-note"></p>
+          <div id="dashboard-pace-chart" class="visualization"></div>
+          <details class="visualization-data"><summary>Ver datos diarios</summary>
+          <ul id="dashboard-pace"></ul>
+          </details>
+        </details>
+        <details class="dashboard-section">
+          <summary>Gastos fijos y variables</summary>
+          <p>La clasificación actual se aplica también al historial. Los gastos sin categoría se muestran sin clasificar.</p>
+          <div id="dashboard-fixed-chart" class="visualization-composition"></div>
+          <ul id="dashboard-fixed"></ul>
+        </details>
+        <details class="dashboard-section">
+          <summary>Suscripciones y pagos recurrentes</summary>
+          <p>Registra montos mensuales o anuales. No se crean gastos automáticamente.</p>
+          <p id="recurring-totals"></p>
+          <p id="recurring-status" role="status"></p>
+          <ul id="recurring-list"></ul>
+          <form id="recurring-form">
+            <div class="form-grid">
+              <label>Nombre<input name="name" maxlength="100" required></label>
+              <label>Monto en CLP<input name="amount" type="number" min="0.01" max="999999999999.99" step="0.01" required></label>
+              <label>Frecuencia
+                <select name="frequency"><option value="monthly">Mensual</option><option value="yearly">Anual</option></select>
+              </label>
+            </div>
+            <div class="form-actions">
+              <button type="submit" id="save-recurring">Agregar pago</button>
+              <button type="button" class="secondary-button" id="cancel-recurring" hidden>Cancelar edición</button>
+            </div>
+          </form>
+        </details>
+        <details class="dashboard-section">
+          <summary>Proyección de metas de ahorro</summary>
+          <p>Estimación según los aportes de los últimos tres meses completos, incluidos los meses sin aportes.</p>
+          <ul id="dashboard-goals"></ul>
+        </details>
+        <details class="dashboard-section">
+          <summary>Evolución de saldos por cuenta</summary>
+          <p>Saldo conjunto de las cuentas activas en CLP; el saldo inicial se considera anterior a todos los movimientos. No incluye otros activos ni deudas.</p>
+          <div id="dashboard-balance-chart" class="visualization"></div>
+          <details class="visualization-data"><summary>Ver saldos mensuales</summary>
+          <ul id="dashboard-balances"></ul>
+          </details>
+        </details>
+        <details class="dashboard-section">
+          <summary>Mayores gastos y comercios</summary>
+          <h3>Mayores gastos del mes</h3>
+          <ul id="dashboard-top"></ul>
+          <h3>Comercios por monto gastado</h3>
+          <ul id="dashboard-merchants"></ul>
+        </details>
+        </div>
+      </section>
       <div class="cards">
         <article class="card total"><p>Total gastado</p><strong id="total"></strong><small>En el mes seleccionado</small></article>
         <article class="card"><p>Movimientos</p><strong id="count"></strong><small>Gastos registrados</small></article>
@@ -147,63 +241,6 @@
             <button id="save-budget" type="submit" disabled>Crear presupuesto</button>
             <button id="cancel-budget-edit" class="secondary-button" type="button" hidden>Cancelar edición</button>
           </div>
-        </form>
-      </section>
-      <section class="panel" id="savings-panel" hidden>
-        <p class="eyebrow">PLANIFICACIÓN PERSONAL</p>
-        <h2>Metas de ahorro</h2>
-        <p class="chart-description">Registra aportes para medir el avance. Los aportes no cambian los saldos de tus cuentas.</p>
-        <p id="savings-status" role="status" aria-live="polite"></p>
-        <p id="savings-empty" hidden>No tienes metas de ahorro todavía.</p>
-        <ul id="savings-goals" aria-label="Metas de ahorro y sus aportes"></ul>
-        <form id="savings-goal-form">
-          <h3>Crear meta</h3>
-          <div class="form-grid">
-            <label>Nombre de la meta
-              <input name="name" maxlength="100" required placeholder="Ej. Vacaciones">
-            </label>
-            <label>Objetivo en CLP
-              <input name="targetAmount" type="number" min="1" max="999999999999" step="1" required placeholder="Ej. 500000">
-            </label>
-            <label>Fecha objetivo (opcional)
-              <input name="dueDate" type="date" min="1900-01-01" max="9999-12-31">
-            </label>
-          </div>
-          <p id="savings-goal-message" role="status" aria-live="polite"></p>
-          <button id="save-goal" type="submit">Crear meta</button>
-        </form>
-        <form id="savings-contribution-form">
-          <h3>Registrar aporte</h3>
-          <div class="form-grid">
-            <label>Meta
-              <select name="goalId" required><option value="">Selecciona una meta</option></select>
-            </label>
-            <label>Aporte en CLP
-              <input name="amount" type="number" min="1" max="999999999999" step="1" required placeholder="Ej. 25000">
-            </label>
-            <label>Fecha
-              <input name="date" type="date" min="1900-01-01" max="9999-12-31" required>
-            </label>
-            <label>Descripción (opcional)
-              <input name="note" maxlength="100" placeholder="Ej. Ahorro de noviembre">
-            </label>
-          </div>
-          <p id="savings-contribution-message" role="status" aria-live="polite"></p>
-          <button id="save-contribution" type="submit" disabled>Guardar aporte</button>
-        </form>
-      </section>
-      <section class="panel" id="category-panel" hidden>
-        <p class="eyebrow">PERSONALIZA TU REGISTRO</p>
-        <h2>Mis categorías</h2>
-        <p class="chart-description">Renombrar también cambia el nombre mostrado en gastos anteriores. Archivar conserva los gastos y presupuestos; puedes restaurar la categoría cuando quieras.</p>
-        <p id="category-status" role="status" aria-live="polite"></p>
-        <ul id="managed-categories" aria-label="Administrar categorías personales"></ul>
-        <form id="category-form">
-          <h3>Crear categoría</h3>
-          <label for="new-category-name">Nombre
-            <input id="new-category-name" name="name" maxlength="100" required placeholder="Ej. Mascotas">
-          </label>
-          <button id="create-category" type="submit">Crear categoría</button>
         </form>
       </section>
       <section class="panel">
@@ -302,6 +339,71 @@
           <button id="save-transfer" type="submit" disabled>Guardar transferencia</button>
           <button id="cancel-transfer-edit" class="secondary-button" type="button" hidden>Cancelar edición</button>
         </div>
+      </form>
+    </section>
+    </div>
+    <section class="panel" id="category-panel" hidden aria-labelledby="category-title">
+      <p class="eyebrow">PERSONALIZA TU REGISTRO</p>
+      <h1 id="category-title">Mis categorías</h1>
+      <p class="chart-description">Crea, renombra y clasifica tus categorías de gasto. Las categorías nuevas son variables por defecto.</p>
+      <p class="category-description">Los cambios de nombre y clasificación se aplican también al historial. Archivar conserva los gastos y presupuestos; puedes restaurar la categoría cuando quieras.</p>
+      <p class="category-description">Los cambios no se guardan hasta pulsar «Actualizar categorías».</p>
+      <ul id="managed-categories" aria-label="Administrar categorías personales"></ul>
+      <form id="category-form">
+        <h2>Crear categoría</h2>
+        <label for="new-category-name">Nombre
+          <input id="new-category-name" name="name" maxlength="100" required placeholder="Ej. Mascotas">
+        </label>
+        <button id="create-category" type="submit">Agregar categoría</button>
+      </form>
+      <p id="category-status" role="status" aria-live="polite"></p>
+      <div class="form-actions">
+        <button id="save-categories" type="button" disabled>Actualizar categorías</button>
+        <button id="refresh-categories" class="secondary-button" type="button">Descartar cambios y recargar</button>
+      </div>
+    </section>
+    <section class="panel" id="savings-panel" hidden aria-labelledby="savings-title">
+      <p class="eyebrow">PLANIFICACIÓN PERSONAL</p>
+      <h1 id="savings-title">Metas de ahorro</h1>
+      <p class="chart-description">Registra aportes para medir el avance. Los aportes no cambian los saldos de tus cuentas.</p>
+      <p id="savings-status" role="status" aria-live="polite"></p>
+      <button id="refresh-savings" class="secondary-button" type="button">Actualizar metas</button>
+      <p id="savings-empty" hidden>No tienes metas de ahorro todavía.</p>
+      <ul id="savings-goals" aria-label="Metas de ahorro y sus aportes"></ul>
+      <form id="savings-goal-form">
+        <h2>Crear meta</h2>
+        <div class="form-grid">
+          <label>Nombre de la meta
+            <input name="name" maxlength="100" required placeholder="Ej. Vacaciones">
+          </label>
+          <label>Objetivo en CLP
+            <input name="targetAmount" type="number" min="1" max="999999999999" step="1" required placeholder="Ej. 500000">
+          </label>
+          <label>Fecha objetivo (opcional)
+            <input name="dueDate" type="date" min="1900-01-01" max="9999-12-31">
+          </label>
+        </div>
+        <p id="savings-goal-message" role="status" aria-live="polite"></p>
+        <button id="save-goal" type="submit">Crear meta</button>
+      </form>
+      <form id="savings-contribution-form">
+        <h2>Registrar aporte</h2>
+        <div class="form-grid">
+          <label>Meta
+            <select name="goalId" required><option value="">Selecciona una meta</option></select>
+          </label>
+          <label>Aporte en CLP
+            <input name="amount" type="number" min="1" max="999999999999" step="1" required placeholder="Ej. 25000">
+          </label>
+          <label>Fecha
+            <input name="date" type="date" min="1900-01-01" max="9999-12-31" required>
+          </label>
+          <label>Descripción (opcional)
+            <input name="note" maxlength="100" placeholder="Ej. Ahorro de noviembre">
+          </label>
+        </div>
+        <p id="savings-contribution-message" role="status" aria-live="polite"></p>
+        <button id="save-contribution" type="submit" disabled>Guardar aporte</button>
       </form>
     </section>
     </div>

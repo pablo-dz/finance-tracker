@@ -20,6 +20,7 @@ Proyecto para entender ingresos, gastos, transferencias, presupuestos y metas de
 - `db/migrations/005_savings_goal_contributions.sql`: registro de aportes y avance de metas de ahorro.
 - `db/migrations/006_personal_category_archiving.sql`: permite archivar categorías sin borrar su historial.
 - `db/migrations/007_user_accounts.sql`: cuentas locales, sesiones y asociación de perfiles personales a usuarios.
+- `db/migrations/008_recurring_payments.sql`: pagos recurrentes personales registrados manualmente.
 - `db/seeds/001_demo.sql`: datos **ficticios**, separados de los datos reales.
 
 ## Preparar una base nueva
@@ -36,9 +37,10 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/004_account_balances_an
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/005_savings_goal_contributions.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/006_personal_category_archiving.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/007_user_accounts.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/008_recurring_payments.sql
 ```
 
-Las migraciones existentes no son repetibles: **no las vuelvas a ejecutar sobre una base ya preparada**. Si ya aplicaste la migración 006, ejecuta solo la 007. La migración 007 no vincula los perfiles existentes a ninguna cuenta: los nuevos usuarios empiezan con un perfil personal nuevo. No hay un mecanismo automático que registre qué migraciones se aplicaron.
+Las migraciones existentes no son repetibles: **no las vuelvas a ejecutar sobre una base ya preparada**. Si tu base ya tiene la 007, aplica únicamente la 008 después de verificar la conexión y respaldar los datos. Si le faltan otras migraciones, aplica solo las pendientes en orden. La migración 007 no vincula los perfiles existentes a ninguna cuenta: los nuevos usuarios empiezan con un perfil personal nuevo. No hay un mecanismo automático que registre qué migraciones se aplicaron.
 
 ## Datos ficticios para pruebas manuales (opcional)
 
@@ -106,11 +108,20 @@ Abre [http://127.0.0.1:3000](http://127.0.0.1:3000). Si el puerto 3000 está ocu
 
 El reporte «Evolución de tus gastos» compara los últimos 3, 6 o 12 meses hasta el mes seleccionado. Muestra el total y promedio mensual, la evolución por mes y el gasto acumulado por categoría. Los meses sin movimientos aparecen con total cero. El reporte incluye únicamente gastos personales de cuentas en CLP.
 
+El dashboard mensual compara ingresos, gastos, ahorro neto y tasa de ahorro con el mes anterior. El ahorro neto es ingresos menos gastos; no descuenta transferencias ni aportes a metas. Sin ingresos no se calcula la tasa. Incluye presupuestos con alertas desde el 80 %, tendencias de 6 o 12 meses por categoría, mayores gastos y comercios, y una comparación del gasto acumulado con un ritmo uniforme basado únicamente en categorías presupuestadas; el gasto sin presupuesto se informa aparte.
+
+Los gráficos de líneas muestran ingresos, gastos y ahorro, ritmo de gasto y evolución de saldos; los gráficos de composición muestran la distribución mensual por categoría y por tipo de gasto. Sus cifras están disponibles en leyendas y en el detalle desplegable; en pantallas pequeñas, los gráficos de líneas se desplazan horizontalmente.
+
+Puedes clasificar categorías como fijas o variables; su clasificación actual se aplica también al historial. Los pagos recurrentes se registran manualmente y no generan movimientos. Sus equivalentes mensuales de pagos anuales se redondean al centavo y son aproximados. La proyección de cada meta usa el promedio de aportes de los últimos tres meses calendario completos anteriores al mes actual; no predice una fecha si no hubo aportes.
+
+La evolución de saldos suma las cuentas activas en CLP al cierre de cada mes o hasta hoy, incluyendo transferencias. El saldo inicial se considera anterior a todos los movimientos, incluso para meses anteriores a la creación de una cuenta. No es una medición completa del patrimonio: excluye cuentas inactivas, otras monedas y activos o deudas no registrados. Los saldos actuales individuales aparecen en «Cuentas».
+
 Consulta un mes y crea un presupuesto para cada categoría que quieras controlar. El límite se configura por separado para cada mes, en pesos enteros; también puede ser cero. Las categorías sin límite aparecen como «Sin presupuesto». La comparación muestra el gasto personal de ese mes en CLP, el límite y lo disponible o excedido, conservando los centavos de gastos existentes. No incluye ingresos, transferencias, gastos sin categoría ni gastos en otras monedas. Para cambiar un límite usa «Cambiar límite»; si otra operación lo cambió desde que se consultó, vuelve a consultar antes de editarlo.
 
-En «Mis categorías» puedes crear y renombrar categorías personales, y archivar o restaurar las que ya no uses. Archivar no borra los gastos ni presupuestos anteriores; las categorías archivadas dejan de estar disponibles para nuevos gastos y presupuestos. Al renombrar una categoría, el nombre nuevo también aparece en sus registros anteriores.
+En «Categorías» puedes crear y renombrar categorías personales, clasificarlas como fijas o variables, y archivar o restaurar las que ya no uses. Los cambios se guardan juntos solo al pulsar «Actualizar categorías»; también puedes descartarlos y recargar. Las nuevas categorías son variables por defecto. Archivar no borra los gastos ni presupuestos anteriores; las categorías archivadas dejan de estar disponibles para nuevos gastos y presupuestos. Al renombrar o reclasificar una categoría, el cambio también aparece en sus registros anteriores.
 
 También puedes crear metas de ahorro con un monto objetivo y una fecha opcional, y registrar aportes para consultar el avance y el historial. Los aportes son solo seguimiento de la meta: **no modifican saldos de cuentas ni registran gastos o transferencias**. Puedes eliminar un aporte si lo registraste por error.
+Accede a estas funciones desde «Metas de ahorro» en la navegación; «Dashboard» vuelve al resumen y al registro de movimientos. La consulta de metas es independiente del mes seleccionado.
 
 Las cuentas usan contraseñas derivadas con `scrypt` y sesiones locales con cookies `HttpOnly`. No hay verificación de correo ni recuperación de contraseña. El servidor escucha únicamente en `127.0.0.1`; no lo expongas a internet ni a redes compartidas. El usuario configurado para conectarse a PostgreSQL es una credencial técnica distinta de la cuenta con la que inicias sesión en la aplicación. Respalda regularmente tu base de datos.
 

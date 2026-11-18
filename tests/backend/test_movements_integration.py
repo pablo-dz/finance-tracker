@@ -22,7 +22,7 @@ class MovementIntegrationTest(unittest.TestCase):
         with psycopg.connect(dbname=self.database) as conn:
             for migration in ("001_schema.sql", "004_account_balances_and_transfers.sql",
                               "005_savings_goal_contributions.sql", "006_personal_category_archiving.sql",
-                              "007_user_accounts.sql"):
+                              "007_user_accounts.sql", "008_recurring_payments.sql"):
                 conn.execute((Path("db/migrations") / migration).read_text())
         env_patch = patch.dict(os.environ, {"PGDATABASE": self.database})
         env_patch.start()
@@ -53,6 +53,69 @@ class MovementIntegrationTest(unittest.TestCase):
 
     def write(self, client, method, path, body, origin=None):
         return client.request(method, path, headers={"Origin": origin or self.origin}, json=body)
+
+    def test_dashboard_analytics_and_personal_recurring_payments(self):
+        options = self.client.get("/api/opciones").json()
+        other_options = self.other.get("/api/opciones").json()
+        account = next(a["id"] for a in options["accounts"] if a["name"] == "Cuenta principal")
+        category = options["categories"][0]["id"]
+        income_category = options["incomeCategories"][0]["id"]
+        expense = {"merchant": "Mercado", "amount": "1500", "date": "2020-06-02",
+                   "accountId": account, "categoryId": category}
+        income = {"merchant": "Sueldo", "amount": "3000", "date": "2020-06-03",
+                  "accountId": account, "categoryId": income_category}
+        self.assertEqual(self.write(self.client, "POST", "/api/gastos", expense).status_code, 201)
+        self.assertEqual(self.write(self.client, "POST", "/api/ingresos", income).status_code, 201)
+        self.assertEqual(self.write(self.client, "POST", "/api/ingresos",
+                                    {**income, "date": "2020-05-01", "amount": "1000"}).status_code, 201)
+        self.assertEqual(self.write(self.client, "POST", "/api/presupuestos",
+                                    {"month": "2020-06", "categoryId": category, "amount": "2000"}).status_code, 201)
+        self.assertEqual(self.write(self.client, "PATCH", "/api/dashboard/categorias",
+                                    {"id": category, "fixed": True}).status_code, 200)
+        self.assertEqual(self.write(self.other, "PATCH", "/api/dashboard/categorias",
+                                    {"id": category, "fixed": False}).status_code, 404)
+        self.assertEqual(self.write(self.other, "POST", "/api/gastos",
+                                    {**expense, "accountId": other_options["accounts"][0]["id"],
+                                     "categoryId": other_options["categories"][0]["id"]}).status_code, 201)
+        payment = {"name": "Suscripción", "amount": "12000.00", "frequency": "yearly"}
+        self.assertEqual(self.write(self.client, "POST", "/api/recurrentes", payment).status_code, 201)
+        item = self.client.get("/api/recurrentes").json()["payments"][0]
+        self.assertEqual(self.other.get("/api/recurrentes").json()["payments"], [])
+        self.assertEqual(self.write(self.other, "DELETE", "/api/recurrentes", {"id": item["id"]}).status_code, 404)
+        self.assertEqual(self.write(self.client, "PUT", "/api/recurrentes",
+                                    {**payment, "id": item["id"], "amount": "0"}).status_code, 400)
+        self.assertEqual(self.write(self.client, "PUT", "/api/recurrentes",
+                                    {**payment, "id": item["id"], "amount": "24000"}).status_code, 200)
+
+        response = self.client.get("/api/dashboard?mes=2020-06")
+        self.assertEqual(response.status_code, 200)
+        result = response.json()
+        self.assertEqual(result["current"],
+                         {"month": "2020-06", "income": "3000.00", "expenses": "1500.00",
+                          "saving": "1500.00", "savingRate": "50.00"})
+        self.assertEqual(result["previous"]["income"], "1000.00")
+        self.assertEqual(result["categories"][-1],
+                         {"month": "2020-06", "id": category, "name": options["categories"][0]["name"],
+                          "fixed": True, "amount": "1500.00"})
+        self.assertEqual(result["daily"], [{"day": 2, "budgeted": "1500.00", "unbudgeted": "0"}])
+        self.assertEqual(result["topExpenses"][0]["name"], "Mercado")
+        self.assertEqual(result["merchants"][0]["amount"], "1500.00")
+        self.assertEqual(result["balances"][-1]["balance"], "2500.00")
+        transfer = {"amount": "500.25", "date": "2020-06-04", "sourceAccountId": account,
+                    "destinationAccountId": self.second_account, "note": "Ahorro"}
+        self.assertEqual(self.write(self.client, "POST", "/api/transferencias", transfer).status_code, 201)
+        other_category = options["categories"][1]["id"]
+        self.assertEqual(self.write(self.client, "POST", "/api/gastos",
+                                    {**expense, "categoryId": other_category, "amount": "200",
+                                     "date": "2020-06-05"}).status_code, 201)
+        result = self.client.get("/api/dashboard?mes=2020-06").json()
+        self.assertEqual(result["current"]["saving"], "1300.00")
+        self.assertEqual(result["balances"][-1]["balance"], "2300.00")
+        self.assertEqual(result["daily"][-1], {"day": 5, "budgeted": "0", "unbudgeted": "200.00"})
+        self.assertIsNone(next(row for row in result["budgets"] if row["categoryId"] == other_category)["budget"])
+        self.assertEqual(self.write(self.client, "DELETE", "/api/recurrentes", {"id": item["id"]}).status_code, 200)
+        self.assertEqual(self.client.get("/api/recurrentes").json()["payments"], [])
+        self.assertEqual(self.client.get("/api/dashboard?mes=2020-06&mes=2020-06").status_code, 400)
 
     def test_isolation_fractional_history_and_month_boundaries(self):
         options = self.client.get("/api/opciones").json()
@@ -160,6 +223,34 @@ class MovementIntegrationTest(unittest.TestCase):
         movements = self.client.get("/api/movimientos?mes=2999-06").json()
         self.assertEqual(movements["incomeTotal"], "1000.00")
         self.assertEqual({m["type"] for m in movements["movements"]}, {"income", "transfer"})
+
+    def test_category_batch_is_atomic_and_checks_previous_values(self):
+        categories = self.client.get("/api/dashboard/categorias").json()["categories"]
+        first, second = categories[:2]
+        def edit(category, **values):
+            return {"id": category["id"], "name": values.get("name", category["name"]),
+                    "active": values.get("active", category["active"]), "fixed": values.get("fixed", category["fixed"]),
+                    "expected": {key: category[key] for key in ("name", "active", "fixed")}}
+        changes = [edit(first, name="Categoría de prueba", fixed=not first["fixed"]),
+                   edit(second, active=False),
+                   {"name": "Nueva categoría", "active": True, "fixed": True}]
+        response = self.write(self.client, "POST", "/api/categorias/lote", {"changes": changes})
+        self.assertEqual(response.status_code, 200)
+        updated = response.json()["categories"]
+        row = next(item for item in updated if item["id"] == first["id"])
+        self.assertEqual((row["name"], row["fixed"]), ("Categoría de prueba", not first["fixed"]))
+        self.assertFalse(next(item for item in updated if item["id"] == second["id"])["active"])
+        self.assertTrue(next(item for item in updated if item["name"] == "Nueva categoría")["fixed"])
+
+        rejected = [edit(row, name="No debe guardarse"),
+                    {"name": "Nueva categoría", "active": True, "fixed": False}]
+        self.assertEqual(self.write(self.client, "POST", "/api/categorias/lote", {"changes": rejected}).status_code, 409)
+        self.assertEqual(next(item for item in self.client.get("/api/dashboard/categorias").json()["categories"]
+                              if item["id"] == first["id"])["name"], "Categoría de prueba")
+        self.assertEqual(self.write(self.client, "POST", "/api/categorias/lote", {"changes": [edit(first)]}).status_code, 409)
+        self.assertEqual(self.write(self.other, "POST", "/api/categorias/lote", {"changes": [edit(row)]}).status_code, 409)
+        self.assertEqual(self.write(self.client, "POST", "/api/categorias/lote",
+                                    {"changes": [edit(row), edit(row)]}).status_code, 400)
 
     def test_categories_and_budgets_preserve_history(self):
         categories = self.client.get("/api/categorias").json()["categories"]

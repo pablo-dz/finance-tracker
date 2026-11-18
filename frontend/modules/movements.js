@@ -6,6 +6,7 @@ import {
 } from "./common.js";
 import { loadExpenses } from "./expenses.js";
 import { updateBudgetForm } from "./planning.js";
+import { refreshDashboard } from "./analytics.js";
 
 const incomeForm = document.querySelector("#income-form");
 const saveIncomeButton = document.querySelector("#save-income");
@@ -298,6 +299,7 @@ openingBalanceForm.addEventListener("submit", async (event) => {
     if (!response.ok) throw new Error(data.error || "No fue posible guardar el saldo inicial.");
     openingBalanceMessage.textContent = "Saldo inicial actualizado correctamente.";
     await refreshAccounts();
+    await refreshDashboard();
   } catch (error) {
     openingBalanceMessage.textContent = error instanceof Error ? error.message : "No fue posible guardar el saldo inicial.";
   } finally {

@@ -11,6 +11,7 @@ from .request_helpers import json_response, read_json_body
 from .movements import router as movements_router
 from .planning import router as planning_router
 from .financial import router as financial_router
+from .dashboard import router as dashboard_router
 from .store import AuthStore, get_store
 
 
@@ -19,6 +20,7 @@ app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 app.include_router(movements_router)
 app.include_router(planning_router)
 app.include_router(financial_router)
+app.include_router(dashboard_router)
 
 
 def set_session_cookie(response, token):
@@ -90,7 +92,8 @@ def dashboard_asset(filename: str):
 
 @app.get("/modules/{filename}", include_in_schema=False)
 def dashboard_module(filename: str):
-    modules = {"auth.js", "common.js", "expenses.js", "movements.js", "planning.js", "reports.js", "savings.js"}
+    modules = {"auth.js", "common.js", "expenses.js", "movements.js", "planning.js", "reports.js",
+               "savings.js", "analytics.js", "visualizations.js"}
     if filename not in modules:
         return json_response({"error": "No encontrado."}, 404)
     return FileResponse(WEB_DIR / "modules" / filename, media_type="text/javascript")

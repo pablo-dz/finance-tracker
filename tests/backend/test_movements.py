@@ -130,7 +130,7 @@ class DashboardTest(unittest.TestCase):
             for path, content_type in (("/", "text/html"), ("/dashboard.js", "text/javascript"),
                                        ("/chart.js", "text/javascript"), ("/styles.css", "text/css"),
                                        *[(f"/modules/{name}.js", "text/javascript") for name in
-                                         ("auth", "common", "expenses", "movements", "planning", "reports", "savings")]):
+                                         ("auth", "common", "expenses", "movements", "planning", "reports", "savings", "analytics", "visualizations")]):
                 response = client.get(path)
                 self.assertEqual(response.status_code, 200)
                 self.assertTrue(response.headers["content-type"].startswith(content_type))

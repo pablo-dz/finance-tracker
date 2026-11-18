@@ -3,6 +3,8 @@ import {
   formatMoney, state,
 } from "./common.js";
 import { loadOptions } from "./movements.js";
+import { loadExpenses } from "./expenses.js";
+import { loadDashboard } from "./analytics.js";
 
 const budgetList = document.querySelector("#budgets");
 const budgetStatus = document.querySelector("#budget-status");
@@ -12,11 +14,16 @@ const categoryStatus = document.querySelector("#category-status");
 const managedCategories = document.querySelector("#managed-categories");
 const categoryForm = document.querySelector("#category-form");
 const createCategoryButton = document.querySelector("#create-category");
+const refreshCategoriesButton = document.querySelector("#refresh-categories");
+const saveCategoriesButton = document.querySelector("#save-categories");
 
 let editingBudget = null;
 let savingBudget = false;
 let categoriesRequest = 0;
 let categorySaving = false;
+let categoriesLoaded = false;
+let categoryUncertain = false;
+let categoryDrafts = [];
 
 export function updateBudgetForm() {
   const month = editingBudget ? editingBudget.month : state.budgetMonth;
@@ -36,65 +43,117 @@ function resetBudgetForm() {
 }
 
 function updateCategoryControls() {
-  createCategoryButton.disabled = categorySaving;
-  for (const control of managedCategories.querySelectorAll("input, button")) {
-    control.disabled = categorySaving || control.dataset.inactive === "true";
+  const unavailable = categorySaving || !categoriesLoaded || categoryUncertain;
+  createCategoryButton.disabled = unavailable;
+  categoryForm.elements.name.disabled = unavailable;
+  refreshCategoriesButton.disabled = categorySaving;
+  saveCategoriesButton.disabled = unavailable || !hasUnsavedCategories();
+  for (const control of managedCategories.querySelectorAll("input, button, select")) {
+    control.disabled = unavailable || control.dataset.inactive === "true";
   }
 }
 
-function renderManagedCategories(categories) {
+function changedCategory(category) {
+  const original = category.original;
+  return !original || category.name.trim() !== displayName(original.name)
+    || category.fixed !== original.fixed || category.active !== original.active;
+}
+
+export function hasUnsavedCategories() {
+  return categoryDrafts.some(changedCategory) || !!categoryForm.elements.name.value.trim();
+}
+
+export function categorySaveInProgress() {
+  return categorySaving;
+}
+
+export function clearCategoryDrafts() {
+  ++categoriesRequest;
+  categoryDrafts = [];
+  categoriesLoaded = false;
+  categoryUncertain = false;
+  categoryForm.reset();
   managedCategories.replaceChildren();
-  for (const category of categories) {
-    const categoryName = displayName(category.name);
+  categoryStatus.textContent = "";
+  updateCategoryControls();
+}
+
+function renderManagedCategories() {
+  managedCategories.replaceChildren();
+  for (const category of categoryDrafts) {
+    const categoryName = category.name;
     const item = document.createElement("li");
     const status = document.createElement("span");
-    const form = document.createElement("form");
     const name = document.createElement("input");
-    const rename = document.createElement("button");
     const toggle = document.createElement("button");
+    const typeLabel = document.createElement("label");
+    const type = document.createElement("select");
     item.className = "managed-category";
     status.className = category.active ? "category-state" : "category-state archived";
-    status.textContent = category.active ? "Activa" : "Archivada";
-    form.className = "category-edit-form";
+    status.textContent = `${category.active ? "Activa" : "Archivada"}${changedCategory(category) ? " · Pendiente" : ""}`;
     name.type = "text";
     name.maxLength = 100;
     name.required = true;
     name.value = categoryName;
     name.setAttribute("aria-label", `Nombre de la categoría ${categoryName}`);
     name.dataset.inactive = String(!category.active);
-    rename.type = "submit";
-    rename.textContent = "Guardar nombre";
-    rename.dataset.inactive = String(!category.active);
+    name.addEventListener("input", () => {
+      category.name = name.value;
+      status.textContent = `${category.active ? "Activa" : "Archivada"}${changedCategory(category) ? " · Pendiente" : ""}`;
+      categoryStatus.textContent = hasUnsavedCategories() ? "Tienes cambios sin guardar." : "";
+      updateCategoryControls();
+    });
     toggle.type = "button";
-    toggle.className = category.active ? "delete-button" : "edit-button";
-    toggle.textContent = category.active ? "Archivar" : "Restaurar";
-    toggle.setAttribute("aria-label", `${category.active ? "Archivar" : "Restaurar"} categoría ${categoryName}`);
-    form.append(name, rename);
-    form.addEventListener("submit", (event) => {
-      event.preventDefault();
-      if (name.value.trim() !== categoryName) {
-        saveCategory("PUT", { id: category.id, name: name.value });
-      }
-    });
+    toggle.className = category.active || !category.original ? "delete-button" : "edit-button";
+    toggle.textContent = category.original ? (category.active ? "Archivar" : "Restaurar") : "Quitar";
+    toggle.setAttribute("aria-label", `${toggle.textContent} categoría ${categoryName}`);
     toggle.addEventListener("click", () => {
-      if (category.active && !confirm(`¿Archivar "${categoryName}"? Sus gastos y presupuestos anteriores se conservarán.`)) return;
-      saveCategory("PATCH", { id: category.id, active: !category.active });
+      if (category.original) category.active = !category.active;
+      else categoryDrafts = categoryDrafts.filter((entry) => entry !== category);
+      renderManagedCategories();
+      categoryStatus.textContent = hasUnsavedCategories() ? "Tienes cambios sin guardar." : "";
     });
-    item.append(status, form, toggle);
+    typeLabel.className = "category-type";
+    typeLabel.textContent = "Tipo";
+    type.setAttribute("aria-label", `Tipo de ${categoryName}`);
+    type.append(new Option("Variable", "false"), new Option("Fija", "true"));
+    type.value = String(category.fixed);
+    type.addEventListener("change", () => {
+      category.fixed = type.value === "true";
+      status.textContent = `${category.active ? "Activa" : "Archivada"}${changedCategory(category) ? " · Pendiente" : ""}`;
+      categoryStatus.textContent = hasUnsavedCategories() ? "Tienes cambios sin guardar." : "";
+      updateCategoryControls();
+    });
+    typeLabel.append(type);
+    item.append(status, name, typeLabel, toggle);
     managedCategories.append(item);
   }
   updateCategoryControls();
 }
 
+function setCategoryDrafts(categories) {
+  categoryDrafts = categories.map((category) => ({
+    original: category, name: displayName(category.name), active: category.active, fixed: category.fixed,
+  }));
+  categoriesLoaded = true;
+  categoryUncertain = false;
+  renderManagedCategories();
+}
+
 export async function loadCategories() {
   const requestId = ++categoriesRequest;
+  categoriesLoaded = false;
+  categoryDrafts = [];
+  categoryForm.reset();
+  managedCategories.replaceChildren();
   categoryStatus.textContent = "Cargando categorías...";
+  updateCategoryControls();
   try {
-    const response = await fetch("/api/categorias");
+    const response = await fetch("/api/dashboard/categorias");
     const data = await response.json();
     if (requestId !== categoriesRequest) return false;
     if (!response.ok) throw new Error(data.error || "No fue posible consultar las categorías.");
-    renderManagedCategories(data.categories);
+    setCategoryDrafts(data.categories);
     categoryStatus.textContent = data.categories.length ? "" : "Todavía no tienes categorías personales.";
     return true;
   } catch (error) {
@@ -104,35 +163,85 @@ export async function loadCategories() {
   }
 }
 
-async function saveCategory(method, category) {
-  if (categorySaving) return;
+function addCategory() {
+  const name = categoryForm.elements.name.value.trim();
+  if (!name || name.length > 100) {
+    categoryStatus.textContent = "Ingresa un nombre válido para la categoría.";
+    return false;
+  }
+  categoryDrafts.push({ original: null, name, active: true, fixed: false });
+  categoryForm.reset();
+  renderManagedCategories();
+  categoryStatus.textContent = "Categoría agregada a los cambios sin guardar.";
+  return true;
+}
+
+async function saveCategories() {
+  if (categorySaving || !categoriesLoaded || categoryUncertain) return;
+  if (categoryForm.elements.name.value.trim() && !addCategory()) return;
+  const changes = categoryDrafts.filter(changedCategory).map((category) => {
+    const original = category.original;
+    const name = original && category.name.trim() === displayName(original.name)
+      ? original.name : category.name.trim();
+    const change = { name, active: category.active, fixed: category.fixed };
+    if (original) {
+      change.id = original.id;
+      change.expected = { name: original.name, active: original.active, fixed: original.fixed };
+    }
+    return change;
+  });
+  if (changes.some((category) => !category.name)) {
+    categoryStatus.textContent = "Ingresa un nombre para cada categoría.";
+    return;
+  }
+  if (!changes.length) return;
   categorySaving = true;
-  categoryStatus.textContent = "Guardando categoría...";
+  categoryStatus.textContent = "Guardando categorías...";
   updateCategoryControls();
   try {
-    const response = await fetch("/api/categorias", {
-      method,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(category),
-    });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || "No fue posible guardar la categoría.");
-    if (method === "POST") categoryForm.reset();
-    const [categoriesLoaded, optionsLoaded] = await Promise.all([
-      loadCategories(),
-      loadOptions(),
-    ]);
-    if (state.displayedBudgetMonth) await loadBudgets(state.displayedBudgetMonth);
-    categoryStatus.textContent = categoriesLoaded && optionsLoaded
+    let response;
+    let data;
+    try {
+      response = await fetch("/api/categorias/lote", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ changes }),
+      });
+      data = await response.json();
+    } catch {
+      categoryUncertain = true;
+      throw new Error("No se pudo confirmar el guardado. Recarga las categorías antes de volver a intentarlo.");
+    }
+    if (!response.ok) throw new Error(data.error || "No fue posible guardar las categorías.");
+    setCategoryDrafts(data.categories);
+    const optionsLoaded = await loadOptions();
+    const month = state.displayedBudgetMonth;
+    const expensesLoaded = month ? await loadExpenses(month) : true;
+    categoryStatus.textContent = optionsLoaded && expensesLoaded
       ? data.message
-      : "Categoría guardada, pero no se pudo actualizar la página. Vuelve a consultar.";
+      : "Categorías guardadas, pero no se pudo actualizar la página. Vuelve a consultar.";
   } catch (error) {
-    categoryStatus.textContent = error instanceof Error ? error.message : "No fue posible guardar la categoría.";
+    categoryStatus.textContent = error instanceof Error ? error.message : "No fue posible guardar las categorías.";
   } finally {
     categorySaving = false;
     updateCategoryControls();
   }
 }
+
+saveCategoriesButton.addEventListener("click", saveCategories);
+refreshCategoriesButton.addEventListener("click", () => {
+  if (hasUnsavedCategories() && !confirm("¿Descartar los cambios sin guardar y recargar las categorías?")) return;
+  loadCategories();
+});
+categoryForm.elements.name.addEventListener("input", () => {
+  categoryStatus.textContent = hasUnsavedCategories() ? "Tienes cambios sin guardar." : "";
+  updateCategoryControls();
+});
+document.defaultView.addEventListener("beforeunload", (event) => {
+  if (!hasUnsavedCategories()) return;
+  event.preventDefault();
+  event.returnValue = "";
+});
 
 export async function loadBudgets(month) {
   const requestId = ++state.budgetRequest;
@@ -191,11 +300,9 @@ export async function loadBudgets(month) {
   }
 }
 
-categoryForm.addEventListener("submit", async (event) => {
+categoryForm.addEventListener("submit", (event) => {
   event.preventDefault();
-  if (categorySaving) return;
-  const values = new FormData(categoryForm);
-  await saveCategory("POST", { name: values.get("name") });
+  if (!categorySaving && categoriesLoaded && !categoryUncertain) addCategory();
 });
 
 budgetForm.addEventListener("submit", async (event) => {
@@ -232,7 +339,9 @@ budgetForm.addEventListener("submit", async (event) => {
     if (!response.ok) throw new Error(data.error || "No fue posible guardar el presupuesto.");
     resetBudgetForm();
     budgetFormMessage.textContent = `Presupuesto de ${month} guardado correctamente.`;
-    if (!budgetPanel.hidden && state.displayedBudgetMonth) await loadBudgets(state.displayedBudgetMonth);
+    if (!budgetPanel.hidden && state.displayedBudgetMonth) {
+      await Promise.all([loadBudgets(state.displayedBudgetMonth), loadDashboard(state.displayedBudgetMonth)]);
+    }
   } catch (error) {
     budgetFormMessage.textContent = error instanceof Error ? error.message : "No fue posible guardar el presupuesto.";
   } finally {

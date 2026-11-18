@@ -1,6 +1,7 @@
 import {
   todayText, formatMoney, moneyInCents, formatCents,
 } from "./common.js";
+import { refreshDashboard } from "./analytics.js";
 
 const savingsStatus = document.querySelector("#savings-status");
 const savingsEmpty = document.querySelector("#savings-empty");
@@ -25,8 +26,12 @@ function updateSavingsContributionForm() {
 
 export async function loadSavingsGoals() {
   const requestId = ++savingsRequest;
+  const goalSelect = savingsContributionForm.elements.goalId;
+  const selectedGoal = goalSelect.value;
   savingsGoalsAvailable = false;
   savingsGoalsList.replaceChildren();
+  goalSelect.replaceChildren(new Option("Selecciona una meta", ""));
+  savingsEmpty.hidden = true;
   savingsStatus.textContent = "Cargando metas...";
   updateSavingsContributionForm();
   try {
@@ -35,8 +40,6 @@ export async function loadSavingsGoals() {
     if (requestId !== savingsRequest) return;
     if (!response.ok) throw new Error(data.error || "No fue posible consultar las metas de ahorro.");
 
-    const goalSelect = savingsContributionForm.elements.goalId;
-    goalSelect.replaceChildren(new Option("Selecciona una meta", ""));
     for (const goal of data.goals) {
       goalSelect.append(new Option(goal.name, String(goal.id)));
       const item = document.createElement("li");
@@ -94,6 +97,7 @@ export async function loadSavingsGoals() {
       if (goal.contributions.length) item.append(contributionList);
       savingsGoalsList.append(item);
     }
+    goalSelect.value = selectedGoal;
     savingsGoalsAvailable = data.goals.length > 0;
     savingsEmpty.hidden = savingsGoalsAvailable;
     savingsStatus.textContent = "";
@@ -104,6 +108,8 @@ export async function loadSavingsGoals() {
     updateSavingsContributionForm();
   }
 }
+
+document.querySelector("#refresh-savings").addEventListener("click", loadSavingsGoals);
 
 async function deleteSavingsContribution(goal, contribution) {
   if (!confirm(`¿Eliminar el aporte de ${formatMoney(contribution.amount)} a "${goal.name}"? Esta acción no se puede deshacer.`)) return;
@@ -116,7 +122,7 @@ async function deleteSavingsContribution(goal, contribution) {
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || "No fue posible eliminar el aporte.");
     savingsContributionMessage.textContent = "Aporte eliminado correctamente.";
-    await loadSavingsGoals();
+    await Promise.all([loadSavingsGoals(), refreshDashboard()]);
   } catch (error) {
     savingsContributionMessage.textContent = error instanceof Error ? error.message : "No fue posible eliminar el aporte.";
   }
@@ -144,7 +150,7 @@ savingsGoalForm.addEventListener("submit", async (event) => {
     if (!response.ok) throw new Error(data.error || "No fue posible crear la meta.");
     savingsGoalForm.reset();
     savingsGoalMessage.textContent = "Meta creada correctamente.";
-    await loadSavingsGoals();
+    await Promise.all([loadSavingsGoals(), refreshDashboard()]);
   } catch (error) {
     savingsGoalMessage.textContent = error instanceof Error ? error.message : "No fue posible crear la meta.";
   } finally {
@@ -176,7 +182,7 @@ savingsContributionForm.addEventListener("submit", async (event) => {
     savingsContributionForm.reset();
     savingsContributionForm.elements.date.value = todayText;
     savingsContributionMessage.textContent = "Aporte registrado correctamente.";
-    await loadSavingsGoals();
+    await Promise.all([loadSavingsGoals(), refreshDashboard()]);
   } catch (error) {
     savingsContributionMessage.textContent = error instanceof Error ? error.message : "No fue posible registrar el aporte.";
   } finally {

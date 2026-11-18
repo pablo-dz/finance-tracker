@@ -4,10 +4,10 @@ import {
   formatMoney, state,
 } from "./common.js";
 import { loadMovements, refreshAccounts } from "./movements.js";
-import { updateBudgetForm, loadBudgets, loadCategories } from "./planning.js";
-import { loadSavingsGoals } from "./savings.js";
+import { updateBudgetForm, loadBudgets } from "./planning.js";
 import { loadPersonalReport } from "./reports.js";
 import { expenseShare } from "../chart.js";
+import { loadDashboard } from "./analytics.js";
 
 const message = document.querySelector("#message");
 const results = document.querySelector("#results");
@@ -15,8 +15,6 @@ const list = document.querySelector("#categories");
 const movements = document.querySelector("#movements");
 const cancelEditButton = document.querySelector("#cancel-edit");
 const incomeMovementsPanel = document.querySelector("#income-movements-panel");
-const savingsPanel = document.querySelector("#savings-panel");
-const categoryPanel = document.querySelector("#category-panel");
 const reportPanel = document.querySelector("#report-panel");
 
 let currentRequest = 0;
@@ -106,19 +104,16 @@ async function deleteExpense(expense, button) {
   }
 }
 
-export async function loadExpenses() {
+export async function loadExpenses(month = monthInput.value) {
   const requestId = ++currentRequest;
   ++state.reportRequest;
-  const month = monthInput.value;
   ++state.budgetRequest;
   state.budgetMonth = null;
   state.displayedBudgetMonth = null;
   budgetPanel.hidden = false;
-  categoryPanel.hidden = false;
   incomeMovementsPanel.hidden = false;
   document.querySelector("#accounts-panel").hidden = false;
   document.querySelector("#income-card").hidden = false;
-  savingsPanel.hidden = false;
   reportPanel.hidden = false;
   updateBudgetForm();
   results.hidden = true;
@@ -208,9 +203,8 @@ export async function loadExpenses() {
     await Promise.all([
       loadMovements(month),
       loadBudgets(month),
-      loadSavingsGoals(),
       loadPersonalReport(month),
-      loadCategories(),
+      loadDashboard(month),
     ]);
     if (requestId !== currentRequest) return false;
     return true;

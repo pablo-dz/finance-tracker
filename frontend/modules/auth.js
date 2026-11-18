@@ -3,6 +3,8 @@ import {
 } from "./common.js";
 import { loadExpenses } from "./expenses.js";
 import { loadOptions, resetIncomeForm, resetTransferForm } from "./movements.js";
+import { loadSavingsGoals } from "./savings.js";
+import { categorySaveInProgress, clearCategoryDrafts, hasUnsavedCategories, loadCategories } from "./planning.js";
 
 const authPanel = document.querySelector("#auth-panel");
 const authStatus = document.querySelector("#auth-status");
@@ -20,7 +22,7 @@ async function showApplication(user) {
   userEmail.textContent = user.email;
   userEmail.hidden = false;
   logoutButton.hidden = false;
-  await Promise.all([loadExpenses(), loadOptions()]);
+  await Promise.all([loadExpenses(), loadOptions(), loadSavingsGoals(), loadCategories()]);
 }
 
 export async function initializeAuthentication() {
@@ -71,7 +73,13 @@ registerForm.addEventListener("submit", (event) => {
 });
 
 logoutButton.addEventListener("click", async () => {
+  if (categorySaveInProgress()) {
+    document.defaultView.alert("Espera a que termine el guardado de categorías antes de cerrar sesión.");
+    return;
+  }
+  if (hasUnsavedCategories() && !confirm("Hay cambios de categorías sin guardar. ¿Cerrar sesión y descartarlos?")) return;
   logoutButton.disabled = true;
+  appContent.inert = true;
   try {
     const response = await fetch("/api/auth/logout", {
       method: "POST",
@@ -82,6 +90,7 @@ logoutButton.addEventListener("click", async () => {
     if (!response.ok) throw new Error(data.error || "No fue posible cerrar la sesión.");
     resetIncomeForm();
     resetTransferForm();
+    clearCategoryDrafts();
     incomeFormMessage.textContent = "";
     transferFormMessage.textContent = "";
     appContent.hidden = true;
@@ -92,6 +101,7 @@ logoutButton.addEventListener("click", async () => {
   } catch (error) {
     authStatus.textContent = error instanceof Error ? error.message : "No fue posible cerrar la sesión.";
   } finally {
+    appContent.inert = false;
     logoutButton.disabled = false;
   }
 });
